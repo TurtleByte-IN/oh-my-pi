@@ -37,6 +37,14 @@ abort, the browser mid-goto cancel, the browser-relay default-tab case, the libk
 end-to-end case and the MCP Streamable HTTP GET-listener progress case; in ai: the Factory Droid
 redemption-expiry rebuild.
 
+One upstream Rust test is skipped the same way in `rust_validate`: on GitHub-hosted runners the
+`Rust tests` step passes `--test_arg=--skip=shell::tests::cancellation_keeps_output_open_for_a_term_trap_that_writes`
+(`crates/pi-shell`, timing-sensitive; it panicked in release run 40292401101).
+
+On runs other than pull requests, `RPC contract` checks the append-only contract history
+against the built commit's first parent, not against `main`'s current tip. A release tag is
+therefore never failed because `main` recorded a newer contract version after the tag's commit.
+
 ## Platforms
 
 | Asset | Built on | Smoke-tested on | Status |
@@ -131,9 +139,10 @@ A dry run sets `build-release` without `is-release`. It runs the addon builds, `
 `release_smoke` and `release_assets`, and uploads the complete asset set as the `release-assets`
 workflow artifact. A dry run dispatched from a tag publishes nothing either.
 
-Without a cache, a release or dry run takes about 2.5 hours. Most of that is
-`native_addons_cross`, which builds seven addon targets one after another (2 h 22 min in run
-40252620252). The binary builds, smoke tests and asset assembly take about 4 minutes after that.
+Without a cache, a release or dry run takes about 1.5 to 2.5 hours, well inside GitHub's 6-hour
+job limit. Most of that is `native_addons_cross`, which builds seven addon targets one after
+another: 1 h 29 min in release run 40292401101 and 2 h 22 min in run 40252620252. The binary
+builds, smoke tests and asset assembly take about 4 minutes after that.
 
 ## Upstream adoption
 
