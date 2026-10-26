@@ -42,20 +42,26 @@ The `package.json` `version` always equals the contract version.
 `schemaHash` is `sha256:<hex>` over a canonical form of the schema bundle (`packages/coding-agent/scripts/gen-rpc/contract.ts`):
 
 - Documentation is dropped: the `description`, `title`, and `$comment` keywords, and the command `doc` field. Property names are kept, even a property called `description`.
-- Object keys are sorted, and commands are sorted by name, so authoring order does not count.
+- Object keys are sorted. Commands are sorted by name. The `required`, `enum`, and `clientOmit` lists are sorted. Moving a definition, a field, or a list entry therefore does not count. The order of union members (`anyOf`) does count.
 - Everything else counts. That includes adding, removing, or renaming a definition, command, or field; a change to a field's type, its required status, an enum value, a `const`, or a `default`; the decoder markers (`x-open`, `x-unknown-fallback`, `x-scalar-or-array`); and the command metadata (`params`, `result`, `nullable`, `unwrap`, `timeoutMs`, `completion`, `clientOmit`).
 
 Rewording documentation does not require a new contract version. Changing the shape does.
 
 ## Version history and the gate
 
-`packages/coding-agent/src/modes/rpc/wire/contract.ts` holds `RPC_CONTRACT_HISTORY`. This is an append-only list of `{ version, schemaHash }` entries. The last entry is the version the server reports. Never edit an entry that has been recorded.
+`packages/coding-agent/src/modes/rpc/wire/contract-history.json` holds the version history: an append-only list of `{ "version", "schemaHash" }` entries. `contract.ts` loads it as `RPC_CONTRACT_HISTORY`, and its last entry is the version the server reports. Never edit, remove, or reorder an entry that has reached the base branch.
 
 `packages/coding-agent/test/rpc-wire/` enforces the history:
 
-- `contract.test.ts` fails when the current bundle's shape hash differs from the last entry's hash. The failure message prints the new hash. The test also fails when versions are not valid semver, are not strictly ascending, or differ from the `packages/rpc-contract/package.json` version.
+- `contract.test.ts` fails in these cases:
+  - The current bundle's shape hash differs from the last entry's hash. The failure message prints the new hash.
+  - A version is not valid semver, or the versions are not strictly ascending.
+  - The last version differs from the `packages/rpc-contract/package.json` version.
+  - The base branch's history (read with `git show <base>:…/contract-history.json`) is not an unchanged prefix of the branch's history. Editing or removing a recorded entry fails even when the shape hash matches.
 - `generated.test.ts` fails when any generated file is stale, including the files in `packages/rpc-contract`.
 - `contract-handshake.test.ts` starts `omp --mode rpc` and checks that `ready` and the `negotiate_protocol` response report `RPC_CONTRACT_VERSION`.
+
+The base branch comes from `OMP_RPC_CONTRACT_BASE_REF`. When that variable is set, the append-only check is mandatory and fails if the ref is missing. When it is unset, the check runs against `origin/main` if that ref exists and is skipped otherwise. The CI job `RPC contract` (`.github/workflows/ci.yml`) works with the shallow checkout: it fetches one commit of the pull request's base branch into `refs/remotes/origin/<base>`, sets the variable, and runs `bun run ci:test:rpc-contract` (every test in `test/rpc-wire`). These tests also run in the regular coding-agent test buckets, where the append-only check is skipped.
 
 `bun run gen:rpc` writes every artifact first. If the shape no longer matches the recorded version, it then exits with code 1 and prints the same instructions as the test.
 
@@ -67,12 +73,16 @@ Rewording documentation does not require a new contract version. Changing the sh
    - **major**: an existing host can break. Examples: a field, command, or frame is removed or renamed; a type narrows or changes; a parameter or field becomes required; an enum value is removed; a default changes; a command's `result`, `nullable`, or `unwrap` changes.
    - **minor**: an addition that hosts may ignore. Examples: a new command, frame, or definition; a new optional field or parameter; a new enum value on a frame the server sends. Hosts must tolerate unknown frames and unknown fields. A generated client reports a frame that carries an unknown enum value as an unknown notification.
    - **patch**: a shape-hash change that alters neither what the server accepts nor what it sends (for example `clientOmit`).
-4. Append `{ version: "<next>", schemaHash: "<printed hash>" }` to `RPC_CONTRACT_HISTORY`.
+4. Append `{ "version": "<next>", "schemaHash": "<printed hash>" }` to `contract-history.json`.
 5. Set the same `version` in `packages/rpc-contract/package.json`.
 6. Run `bun run gen:rpc` again. It must exit with code 0. Then commit the regenerated files together with the history entry.
 7. Add a `CHANGELOG.md` entry that names the new contract version.
 
 When a merge brings in an upstream change to the wire schema, the gate fails until the adoption pull request performs these steps.
+
+### Rust SDK caveat
+
+The generated Rust structs in `sdk/rust/omp-rpc` (`ReadyEvent`, `NegotiateProtocolResult`, and every other wire struct) are not marked `#[non_exhaustive]`; nothing in that crate is, and the structs do not derive `Default`. Adding an optional field, which is a minor contract bump, therefore breaks Rust code that builds those structs with a struct literal: the code must add the new field. Adding `contractVersion` broke `omp-rpc`'s own client this way. Rust consumers should treat every contract bump as a possible source-breaking change for struct literals, or build the structs by deserializing JSON, where a missing optional field becomes `None`.
 
 ## Pinning the contract in a host
 

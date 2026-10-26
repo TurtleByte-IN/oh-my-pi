@@ -627,6 +627,31 @@ jobs:
               # the whole group here would red this job on an unrelated break.
               bun test scripts/release.test.ts
 
+   # The RPC contract gate (docs/rpc-contract.md) in its own job, so a wire
+   # change without a contract version bump fails a check that is green
+   # otherwise and can be required on its own name. The base branch is fetched
+   # (one commit is enough) for the append-only history check, which
+   # OMP_RPC_CONTRACT_BASE_REF makes mandatory.
+   rpc_contract:
+      name: RPC contract
+      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      needs: [native_addons]
+      if: ${{ !cancelled() && needs.native_addons.result == 'success' }}
+      timeout-minutes: 10
+      env:
+         BASE_BRANCH: ${{ github.base_ref || github.event.repository.default_branch }}
+      steps:
+         - uses: actions/checkout@v4
+         - uses: ./.github/actions/bun-install
+         - uses: ./.github/actions/native-artifacts
+           with:
+              targets: linux-x64-baseline linux-x64-modern
+              stash: ${{ needs.native_addons.outputs.stash }}
+         - name: Fetch base branch
+           run: git fetch --no-tags --depth=1 origin "+refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}"
+         - name: RPC contract tests
+           run: OMP_RPC_CONTRACT_BASE_REF="origin/${BASE_BRANCH}" bun run ci:test:rpc-contract
+
    test_coding_agent_singleton:
       name: Test coding-agent singleton/global-state (TS)
       runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}

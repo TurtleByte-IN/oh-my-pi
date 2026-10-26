@@ -5,12 +5,15 @@
  * next to `protocolVersion` (which only selects framing). Hosts pin the
  * version through the generated `packages/rpc-contract` package.
  *
- * Each entry records the shape hash of the schema bundle at that version
- * (`scripts/gen-rpc/contract.ts` computes it; documentation text is excluded).
+ * `contract-history.json` records each released version with the shape hash
+ * of the schema bundle at that version (`scripts/gen-rpc/contract.ts` computes
+ * it; documentation text and ordering are excluded). It is JSON so the
+ * append-only check can read the base branch's copy with `git show`.
  * `test/rpc-wire/contract.test.ts` fails when the current bundle's hash differs
- * from the last entry, so a frame shape cannot change without a new entry.
- * The list is append-only: never edit a recorded entry. See `docs/rpc-contract.md`.
+ * from the last entry, or when an entry recorded on the base branch was edited
+ * or removed. See `docs/rpc-contract.md`.
  */
+import history from "./contract-history.json" with { type: "json" };
 
 /** One released contract version and the shape hash of its schema bundle. */
 export interface RpcContractRelease {
@@ -18,9 +21,7 @@ export interface RpcContractRelease {
 	schemaHash: string;
 }
 
-export const RPC_CONTRACT_HISTORY: readonly RpcContractRelease[] = [
-	{ version: "1.0.0", schemaHash: "sha256:ad9e27bb7f834394aa8e8d6d42bcc59f5b8903782b8cf455e11a59fa9e23aec1" },
-];
+export const RPC_CONTRACT_HISTORY: readonly RpcContractRelease[] = history;
 
 /** Contract version this build speaks: the last `RPC_CONTRACT_HISTORY` entry. */
 export const RPC_CONTRACT_VERSION: string = RPC_CONTRACT_HISTORY[RPC_CONTRACT_HISTORY.length - 1].version;

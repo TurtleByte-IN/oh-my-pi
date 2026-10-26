@@ -3,5 +3,5 @@
 /** RPC contract semver; `ready` and the `negotiate_protocol` response report it as `contractVersion`. */
 export const RPC_CONTRACT_VERSION = "1.0.0";
 
-/** `sha256:<hex>` shape hash of `rpc-wire.schema.json` (documentation text excluded). */
-export const RPC_CONTRACT_SCHEMA_HASH = "sha256:ad9e27bb7f834394aa8e8d6d42bcc59f5b8903782b8cf455e11a59fa9e23aec1";
+/** `sha256:<hex>` shape hash of `rpc-wire.schema.json` (documentation text and ordering excluded). */
+export const RPC_CONTRACT_SCHEMA_HASH = "sha256:7163c1c55792ee38a975e8d7cbba53b5c10762b338dc82838ffa21b1ea3a4797";
