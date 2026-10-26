@@ -36,9 +36,9 @@ import {
 	createSourceMeta,
 	discoverExtensionModulePaths,
 	loadFilesFromDir,
-	SOURCE_PATHS,
 	scanSkillsFromDir,
 } from "./helpers";
+import { SOURCE_PATHS } from "./source-paths";
 import { resolvePluginStdioPaths } from "./substitute-plugin-root";
 
 import { cfgSkillsEnableCodexUser } from "../extensibility/settings";

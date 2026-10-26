@@ -15,7 +15,9 @@ import {
 	logger,
 	normalizePathForComparison,
 } from "@oh-my-pi/pi-utils";
+import { isProjectCodeTrusted } from "../../capability";
 import { getConfigDirPaths } from "../../config";
+import type { Settings } from "../../config/settings";
 import { registerPluginCacheInvalidator, resolveActiveProjectRegistryPath } from "../../discovery/helpers";
 import { findExtensionDirectoryIndex, resolveExtensionDirectory } from "../extensions/directory-resolution";
 import { installLegacyPiSpecifierShim } from "./legacy-pi-compat";
@@ -31,8 +33,8 @@ installLegacyPiSpecifierShim();
 
 const enabledPluginsCache = new Map<string, Promise<ScopedInstalledPlugin[]>>();
 
-function enabledPluginsCacheKey(cwd: string, home?: string): string {
-	return `${path.resolve(cwd)}\0${home === undefined ? "" : path.resolve(home)}`;
+function enabledPluginsCacheKey(cwd: string, home: string | undefined, projectTrusted: boolean): string {
+	return `${path.resolve(cwd)}\0${home === undefined ? "" : path.resolve(home)}\0${projectTrusted}`;
 }
 
 function clearEnabledPluginsCache(): void {
@@ -241,13 +243,17 @@ async function collectPluginsAtRoot(
  * need to enumerate plugins relative to a non-default home (tests with a
  * tempdir, discovery loaders threaded with `LoadContext.home`).
  */
-export async function getEnabledPlugins(cwd: string, opts: { home?: string } = {}): Promise<ScopedInstalledPlugin[]> {
+export async function getEnabledPlugins(
+	cwd: string,
+	opts: { home?: string; settings?: Settings } = {},
+): Promise<ScopedInstalledPlugin[]> {
 	const { home } = opts;
-	const cacheKey = enabledPluginsCacheKey(cwd, home);
+	const projectTrusted = isProjectCodeTrusted(opts.settings);
+	const cacheKey = enabledPluginsCacheKey(cwd, home, projectTrusted);
 	const cached = enabledPluginsCache.get(cacheKey);
 	if (cached) return cached;
 
-	const loadPromise = loadEnabledPlugins(cwd, home);
+	const loadPromise = loadEnabledPlugins(cwd, home, projectTrusted);
 	enabledPluginsCache.set(cacheKey, loadPromise);
 	try {
 		return await loadPromise;
@@ -259,14 +265,19 @@ export async function getEnabledPlugins(cwd: string, opts: { home?: string } = {
 	}
 }
 
-async function loadEnabledPlugins(cwd: string, home?: string): Promise<ScopedInstalledPlugin[]> {
-	const projectOverrides = await loadProjectOverrides(cwd);
+async function loadEnabledPlugins(
+	cwd: string,
+	home: string | undefined,
+	projectTrusted: boolean,
+): Promise<ScopedInstalledPlugin[]> {
+	// An untrusted workspace contributes no plugins and no plugin overrides.
+	const projectOverrides = projectTrusted ? await loadProjectOverrides(cwd) : {};
 
 	const userRoot = getPluginsDir(home);
 	const userPlugins = await collectPluginsAtRoot(userRoot, projectOverrides, "user");
 
 	let projectPlugins: ScopedInstalledPlugin[] = [];
-	const projectRegistryPath = await resolveActiveProjectRegistryPath(cwd);
+	const projectRegistryPath = projectTrusted ? await resolveActiveProjectRegistryPath(cwd) : null;
 	if (projectRegistryPath) {
 		const projectRoot = path.dirname(projectRegistryPath);
 		if (normalizePathForComparison(projectRoot) !== normalizePathForComparison(userRoot)) {
@@ -429,8 +440,8 @@ export function resolvePluginExtensionPaths(plugin: InstalledPlugin): string[] {
 /**
  * Get all tool paths from all enabled plugins.
  */
-export async function getAllPluginToolPaths(cwd: string): Promise<string[]> {
-	const plugins = await getEnabledPlugins(cwd);
+export async function getAllPluginToolPaths(cwd: string, settings?: Settings): Promise<string[]> {
+	const plugins = await getEnabledPlugins(cwd, { settings });
 	const paths: string[] = [];
 
 	for (const plugin of plugins) {
@@ -443,8 +454,8 @@ export async function getAllPluginToolPaths(cwd: string): Promise<string[]> {
 /**
  * Get all hook paths from all enabled plugins.
  */
-export async function getAllPluginHookPaths(cwd: string): Promise<string[]> {
-	const plugins = await getEnabledPlugins(cwd);
+export async function getAllPluginHookPaths(cwd: string, settings?: Settings): Promise<string[]> {
+	const plugins = await getEnabledPlugins(cwd, { settings });
 	const paths: string[] = [];
 
 	for (const plugin of plugins) {
@@ -457,8 +468,8 @@ export async function getAllPluginHookPaths(cwd: string): Promise<string[]> {
 /**
  * Get all command paths from all enabled plugins.
  */
-export async function getAllPluginCommandPaths(cwd: string): Promise<string[]> {
-	const plugins = await getEnabledPlugins(cwd);
+export async function getAllPluginCommandPaths(cwd: string, settings?: Settings): Promise<string[]> {
+	const plugins = await getEnabledPlugins(cwd, { settings });
 	const paths: string[] = [];
 
 	for (const plugin of plugins) {
@@ -471,8 +482,8 @@ export async function getAllPluginCommandPaths(cwd: string): Promise<string[]> {
 /**
  * Get all extension module paths from all enabled plugins.
  */
-export async function getAllPluginExtensionPaths(cwd: string): Promise<string[]> {
-	const plugins = await getEnabledPlugins(cwd);
+export async function getAllPluginExtensionPaths(cwd: string, settings?: Settings): Promise<string[]> {
+	const plugins = await getEnabledPlugins(cwd, { settings });
 	const paths: string[] = [];
 
 	for (const plugin of plugins) {
@@ -488,7 +499,7 @@ export async function getAllPluginExtensionPaths(cwd: string): Promise<string[]>
  */
 export async function getPluginSettings(pluginName: string, cwd: string): Promise<Record<string, unknown>> {
 	const runtimeConfig = await loadRuntimeConfig();
-	const projectOverrides = await loadProjectOverrides(cwd);
+	const projectOverrides = isProjectCodeTrusted() ? await loadProjectOverrides(cwd) : {};
 
 	const global = runtimeConfig.settings[pluginName] || {};
 	const project = projectOverrides.settings?.[pluginName] || {};

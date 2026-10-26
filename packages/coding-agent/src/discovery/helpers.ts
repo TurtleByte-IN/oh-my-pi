@@ -3,7 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { FileType, glob } from "@oh-my-pi/pi-natives";
 import {
-	CONFIG_DIR_NAME,
 	getAgentDir,
 	getConfigDirName,
 	getPluginsDir,
@@ -14,6 +13,7 @@ import {
 	tryParseJson,
 } from "@oh-my-pi/pi-utils";
 import { isUserSourceEnabled } from "../capability";
+import { SOURCE_PATHS, type SourceId } from "./source-paths";
 import type { ContextFile } from "../capability/context-file";
 import type { ExtensionModule } from "../capability/extension-module";
 import { invalidate as invalidateFsCache, readDirEntries, readFile } from "../capability/fs";
@@ -34,68 +34,6 @@ import { normalizeToolNames } from "../tools/builtin-names";
 
 import { realpathIfExists, resolveContainedPath } from "./contained-path";
 import { buildPluginDirRoot } from "./plugin-dir-roots";
-
-/**
- * Standard paths for each config source.
- */
-export const SOURCE_PATHS = {
-	native: {
-		get userBase() {
-			return getConfigDirName();
-		},
-		get userAgent() {
-			return `${getConfigDirName()}/agent`;
-		},
-		projectDir: CONFIG_DIR_NAME,
-	},
-	claude: {
-		userBase: ".claude",
-		userAgent: ".claude",
-		projectDir: ".claude",
-	},
-	codex: {
-		userBase: ".codex",
-		userAgent: ".codex",
-		projectDir: ".codex",
-	},
-	gemini: {
-		userBase: ".gemini",
-		userAgent: ".gemini",
-		projectDir: ".gemini",
-	},
-	opencode: {
-		userBase: ".config/opencode",
-		userAgent: ".config/opencode",
-		projectDir: ".opencode",
-	},
-	cursor: {
-		userBase: ".cursor",
-		userAgent: ".cursor",
-		projectDir: ".cursor",
-	},
-	windsurf: {
-		userBase: ".codeium/windsurf",
-		userAgent: ".codeium/windsurf",
-		projectDir: ".windsurf",
-	},
-	cline: {
-		userBase: ".cline",
-		userAgent: ".cline",
-		projectDir: null, // Cline uses root-level .clinerules
-	},
-	github: {
-		userBase: null,
-		userAgent: null,
-		projectDir: ".github",
-	},
-	vscode: {
-		userBase: ".vscode",
-		userAgent: ".vscode",
-		projectDir: ".vscode",
-	},
-} as const;
-
-export type SourceId = keyof typeof SOURCE_PATHS;
 
 /**
  * Resolve a user-level path for a source without the `~/` opt-in gate.

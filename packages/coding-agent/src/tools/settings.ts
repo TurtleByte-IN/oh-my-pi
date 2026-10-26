@@ -304,24 +304,6 @@ export const cfgToolsApproval = register({
 	},
 });
 
-/**
- * Whether the working directory's own inputs may widen what the agent does. `false` (set by a
- * host's `--config` overlay or the user's global config; a project cannot set it) drops the
- * project layer's approval policies, loads no project MCP servers and no project extensions or hooks.
- */
-export const cfgWorkspaceTrusted = register({
-	id: "workspace.trusted",
-	type: "boolean",
-	default: true,
-	ui: {
-		tab: "interaction",
-		group: "Approvals",
-		label: "Trust Workspace",
-		description:
-			"Honor the project's approval policies (tools.approval, bash.patterns), MCP servers, extensions and hooks. Off: they are ignored.",
-	},
-});
-
 // Default tool approval mode (interaction tab, but governs the tool wrapper).
 //   "always-ask"        — auto-approves read-tier tools only; prompts for write/exec.
 //   "always-ask-cached" — like always-ask, but file reads and writes can be approved

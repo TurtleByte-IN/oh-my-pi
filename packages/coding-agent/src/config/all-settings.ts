@@ -41,6 +41,7 @@ import * as streamSettings from "../stream/settings";
 import * as commitSettings from "../commit/settings";
 import * as cliGcSettings from "../cli/gc-settings";
 import * as telemetrySettings from "../telemetry-settings";
+import * as workspaceTrustSettings from "./workspace-trust";
 
 const DOMAINS: readonly Readonly<Record<string, unknown>>[] = [
 	configModelSettings,
@@ -84,6 +85,7 @@ const DOMAINS: readonly Readonly<Record<string, unknown>>[] = [
 const PLACED_DOMAINS: readonly { domain: Readonly<Record<string, unknown>>; before: AnySetting }[] = [
 	{ domain: liveSettings, before: sessionSettings.cfgProvidersFetch },
 	{ domain: ttsSettings, before: sessionSettings.cfgProvidersFetch },
+	{ domain: workspaceTrustSettings, before: toolsSettings.cfgToolsApprovalMode },
 ];
 
 let ordered: readonly AnySetting[] | undefined;

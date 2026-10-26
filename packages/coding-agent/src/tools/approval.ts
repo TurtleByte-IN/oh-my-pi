@@ -311,7 +311,8 @@ function modeApprovesTier(mode: ApprovalMode, tier: ToolTier): boolean {
 	return TIER_RANK[tier] <= TIER_RANK[APPROVAL_MODE_MAX_TIER[mode]];
 }
 
-const AGENT_CONFIG_WRITE_REASON = "Changes agent configuration (approval policies, MCP servers, extensions or hooks)";
+const AGENT_CONFIG_WRITE_REASON =
+	"Changes agent configuration or code it loads (approval policies, tools, commands, extensions, hooks, MCP/LSP servers, git hooks)";
 
 /**
  * Resolve approval policy for a tool call.
@@ -345,7 +346,7 @@ export function resolveApproval(
 		mode !== "yolo" &&
 		toolDecision.tier !== "read" &&
 		toolDecision.policy !== "deny" &&
-		approvalCacheTargets(tool, args).some(isAgentConfigPath)
+		approvalCacheTargets(tool, args).some(target => isAgentConfigPath(target))
 			? { ...toolDecision, policy: "prompt" as const, override: true, reason: AGENT_CONFIG_WRITE_REASON }
 			: toolDecision;
 	const policyKey = decision.policyKey ?? tool.name;

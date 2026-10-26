@@ -63,7 +63,8 @@ import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpe
 import { cfgBrowserEnabled } from "../../tools/browser/settings";
 import { defaultLoadModeForToolName } from "../../tools/essential-tools";
 import { isApprovalMode } from "../../tools/approval";
-import { cfgComputerEnabled, cfgToolsApprovalMode, cfgWorkspaceTrusted } from "../../tools/settings";
+import { cfgWorkspaceTrusted } from "../../config/workspace-trust";
+import { cfgComputerEnabled, cfgToolsApprovalMode } from "../../tools/settings";
 import { USER_TODO_EDIT_CUSTOM_TYPE } from "../../tools/todo";
 import type { EventBus } from "../../utils/event-bus";
 import { selectRpcEntries } from "./rpc-compat";

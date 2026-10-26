@@ -300,14 +300,72 @@ function projectLayerForMerge(project: RawSettings): RawSettings {
 	return filteredRoles ? { ...project, modelRoles: filteredRoles } : project;
 }
 
-/** Project-layer paths an untrusted workspace (`workspace.trusted: false`) never honors. */
-const UNTRUSTED_PROJECT_PATHS: readonly (readonly string[])[] = [
-	["tools", "approval"],
-	["bash", "patterns"],
-	["extensions"],
-	["mcp", "enableProjectConfig"],
-	["workspace", "trusted"],
+/**
+ * Project-layer paths an untrusted workspace (`workspace.trusted: false`) still honors: model roles,
+ * sampling, display and agent-loop behaviour. Nothing here runs a program, names a host, URL or file
+ * outside the workspace, or widens what a tool may do; every other project key is dropped.
+ */
+const UNTRUSTED_PROJECT_ALLOWLIST: readonly (readonly string[])[] = [
+	["modelRoles"],
+	["defaultThinkingLevel"],
+	["hideThinkingBlock"],
+	["expandThinkingBlocks"],
+	["omitThinking"],
+	["proseOnlyThinking"],
+	["textVerbosity"],
+	["temperature"],
+	["topP"],
+	["topK"],
+	["minP"],
+	["presencePenalty"],
+	["repetitionPenalty"],
+	["followUpMode"],
+	["steeringMode"],
+	["interruptMode"],
+	["doubleEscapeAction"],
+	["readLineNumbers"],
+	["autocompleteMaxVisible"],
+	["emojiAutocomplete"],
+	["colorBlindMode"],
+	["symbolPreset"],
+	["treeFilterMode"],
+	["display"],
+	["theme"],
+	["tui"],
+	["statusLine"],
+	["spelling"],
+	["composer"],
+	["ask"],
+	["branchSummary"],
+	["recap"],
+	["todo"],
+	["goal"],
+	["edit"],
+	["grep", "contextBefore"],
+	["grep", "contextAfter"],
+	["read", "defaultLimit"],
+	["read", "renderMarkdown"],
+	["read", "summarize"],
+	["read", "toolResultPreview"],
+	["compaction", "enabled"],
+	["compaction", "thresholdPercent"],
+	["compaction", "thresholdTokens"],
+	["compaction", "reserveTokens"],
+	["compaction", "keepRecentTokens"],
 ];
+
+/**
+ * Builds `project` as an untrusted workspace merges it: only {@link UNTRUSTED_PROJECT_ALLOWLIST}
+ * paths survive (an allowlist, so a setting added later is dropped until it is vetted).
+ */
+function untrustedProjectLayer(project: RawSettings): RawSettings {
+	const kept: RawSettings = {};
+	for (const segments of UNTRUSTED_PROJECT_ALLOWLIST) {
+		const value = getByPath(project, segments);
+		if (value !== undefined) setByPath(kept, segments, structuredClone(value));
+	}
+	return kept;
+}
 
 /**
  * Whether a layer above the project (runtime, `--config` overlay, global) sets
@@ -319,13 +377,6 @@ function isWorkspaceUntrusted(layers: Pick<OwnLayers, "global" | "configOverlay"
 		if (typeof value === "boolean") return !value;
 	}
 	return false;
-}
-
-/** `project` without the paths an untrusted workspace ignores. */
-function untrustedProjectLayer(project: RawSettings): RawSettings {
-	const stripped = structuredClone(project);
-	for (const segments of UNTRUSTED_PROJECT_PATHS) deleteByPath(stripped, segments);
-	return stripped;
 }
 
 /** One instance's own layers, lowest precedence first. */

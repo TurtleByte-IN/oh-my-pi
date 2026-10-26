@@ -1984,12 +1984,27 @@ By default, `RpcClient` starts `omp --mode rpc`; pass `command=[...]` to own the
 
 `get_state` reports `workspaceTrusted`: the session's `workspace.trusted`. A host that
 does not trust the working directory sets `workspace.trusted: false` in its `--config`
-overlay (the project layer cannot set it). The session then ignores the project's
-`tools.approval`, `bash.patterns` and `extensions`, loads no project MCP servers
-(`mcp.enableProjectConfig` resolves `false`), extensions or hooks. Independently, outside
-`yolo` a write-tier call whose target is agent configuration (`.omp/`, `.pi/`, `.mcp.json`,
-`mcp.json`, `.claude/settings*.json`, a loaded `--config` file) always prompts, even when
-the mode, a user `allow` or a remembered grant would approve it.
+overlay (the project layer cannot set it). The session then runs none of the project's own
+code: no project custom tools (`.omp/tools`, `.claude/tools`, `.codex/tools`, …), custom
+commands, extensions, hooks, plugins or plugin overrides, MCP servers (`mcp.enableProjectConfig`
+resolves `false`), SSH hosts, and no LSP or DAP servers from project `lsp.*`/`dap.*` files or
+project config dirs; LSP and DAP commands resolve through `PATH` only, never a project-local
+`node_modules/.bin` or virtualenv. Of the project's settings (`.omp/config.yml`, merged
+`.claude/settings.json`) only an allowlist applies: model roles, sampling, thinking display,
+`display`, `theme`, `tui`, `statusLine`, `edit`, `todo`, `goal` and similar behaviour keys, and
+the compaction thresholds. Everything else (`shellPath`, `shellCommandPrefix`, `tools.approval`,
+`bash.patterns`, `collab.*`, `share.serverUrl`, `stream.serverUrl`, `images.urls.*`,
+`compaction.remoteEndpoint`, …) is dropped.
+
+Independently, outside `yolo` a write-tier call whose target is agent configuration always
+prompts, even when the mode, a user `allow` or a remembered grant would approve it. Agent
+configuration is anything under a discovery source's config dir, project or user (`.omp`,
+`.pi`, `.claude`, `.codex`, `.gemini`, `.opencode`, `~/.config/opencode`, `.cursor`,
+`.windsurf`, `.cline`, `.github`, `.vscode`), `.git/hooks/` and `.git/config`, `mcp.json`,
+`.mcp.json`, `opencode.json(c)`, `.claude.json`, `lsp.*`, `dap.*`, `ssh.*` (each with and
+without a leading dot), and a loaded `--config` file. The check sees through symlinks (the
+deepest existing ancestor is resolved), compares names case-insensitively and ignores the
+trailing dots and spaces Windows drops.
 
 `get_state` also reports `browserEnabled` and `computerEnabled`: whether the browser and
 computer-use eval preludes are on, from `browser.enabled` and `computer.enabled` as the

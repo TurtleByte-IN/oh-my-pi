@@ -6,6 +6,8 @@
  * a unified array of MCP servers.
  */
 
+import type { Settings } from "../config/settings";
+
 /** Extension sub-discovery mode; `explicit-only` suppresses ambient sources. */
 export type ExtensionRootMode = "merge" | "explicit-only";
 
@@ -116,6 +118,11 @@ export interface LoadOptions<T = unknown> {
 	includeDisabled?: boolean;
 	/** Explicit disabled extension IDs to apply instead of settings. */
 	disabledExtensions?: string[];
+	/**
+	 * Session settings deciding workspace trust for this load. Default: the bound settings. An
+	 * untrusted workspace loads no project-level items of code-running capabilities.
+	 */
+	settings?: Settings;
 	/**
 	 * Session-local extension roots for this load, forwarded to
 	 * {@link LoadContext.extensionRoots}. Post-startup reloads MUST pass their

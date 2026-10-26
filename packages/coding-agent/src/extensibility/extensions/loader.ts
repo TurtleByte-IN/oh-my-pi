@@ -21,8 +21,7 @@ import { hasFsCode, isEacces, isEnoent, logger } from "@oh-my-pi/pi-utils";
 import { type ExtensionModule, extensionModuleCapability } from "../../capability/extension-module";
 import { type Hook, hookCapability } from "../../capability/hook";
 import { isServiceTierFamily, isServiceTierForFamily } from "../../config/service-tier";
-import { findScopedSettings } from "../../config/settings";
-import { cfgWorkspaceTrusted } from "../../tools/settings";
+import type { Settings } from "../../config/settings";
 import { loadCapability } from "../../discovery";
 import { getExtensionNameFromPath } from "../../discovery/helpers";
 import type { ExecOptions } from "../../exec/exec";
@@ -579,6 +578,11 @@ export interface DiscoverExtensionPathOptions {
 	ambient?: boolean;
 	/** Include ambient hook factories. Disable for read-only catalog commands. */
 	includeAmbientHooks?: boolean;
+	/**
+	 * Session settings deciding workspace trust: an untrusted workspace loads no project
+	 * extensions, hooks or plugins. Default: the bound session's settings.
+	 */
+	settings?: Settings;
 }
 
 export async function discoverExtensionPaths(
@@ -590,7 +594,9 @@ export async function discoverExtensionPaths(
 	const allPaths: string[] = [];
 	const seen = new Set<string>();
 	const disabled = new Set(disabledExtensionIds ?? []);
-	const loadOptions = disabledExtensionIds ? { cwd, disabledExtensions: disabledExtensionIds } : { cwd };
+	const loadOptions = disabledExtensionIds
+		? { cwd, disabledExtensions: disabledExtensionIds, settings: options.settings }
+		: { cwd, settings: options.settings };
 
 	const isDisabledName = (name: string): boolean => disabled.has(`extension-module:${name}`);
 
@@ -610,9 +616,6 @@ export async function discoverExtensionPaths(
 	};
 
 	const ambient = options.ambient !== false;
-	// An untrusted workspace (`workspace.trusted: false`) runs none of the project's own code.
-	const scoped = findScopedSettings(cwd);
-	const projectTrusted = scoped === undefined || cfgWorkspaceTrusted.get(scoped) !== false;
 	if (ambient) {
 		// 1. Discover extension modules via capability API (native .omp/.pi only).
 		// Scope the load to the native provider — the extension-module capability
@@ -625,7 +628,6 @@ export async function discoverExtensionPaths(
 			providers: ["native"],
 		});
 		for (const ext of discovered.items) {
-			if (!projectTrusted && ext.level === "project") continue;
 			addPath(ext.path);
 		}
 	}
@@ -638,7 +640,6 @@ export async function discoverExtensionPaths(
 		if (options.includeAmbientHooks !== false) {
 			const hooks = await loadCapability<Hook>(hookCapability.id, loadOptions);
 			for (const hookPath of hooks.items
-				.filter(hook => projectTrusted || hook.level !== "project")
 				.map(hook => hook.path)
 				.filter(hookPath => isExtensionFile(path.basename(hookPath)))) {
 				addPath(hookPath);
@@ -652,7 +653,7 @@ export async function discoverExtensionPaths(
 
 	// 3. Discover extension entry points from installed plugins.
 	if (ambient) {
-		addPaths(await getAllPluginExtensionPaths(cwd));
+		addPaths(await getAllPluginExtensionPaths(cwd, options.settings));
 	}
 
 	// 4. Explicitly configured paths

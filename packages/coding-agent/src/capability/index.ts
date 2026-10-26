@@ -25,6 +25,28 @@ import type {
 
 import { cfgDisabledExtensions } from "../extensibility/settings";
 import { cfgDisabledProviders, cfgEnabledProviders } from "../config/model-settings";
+import { isWorkspaceTrusted } from "../config/workspace-trust";
+
+/**
+ * Capabilities whose items run code, start servers or connect out: an untrusted workspace loads
+ * none of their project-level items.
+ */
+const PROJECT_CODE_CAPABILITIES: Record<string, true> = {
+	tools: true,
+	extensions: true,
+	"extension-modules": true,
+	hooks: true,
+	mcps: true,
+	ssh: true,
+};
+
+/**
+ * Whether the working directory's own code may run: `settings` when given, else the bound
+ * session's. With neither there is no host configuration to distrust it.
+ */
+export function isProjectCodeTrusted(settings: Settings | undefined = boundSettings()): boolean {
+	return settings === undefined || isWorkspaceTrusted(settings);
+}
 
 // =============================================================================
 // Registry State
@@ -154,6 +176,8 @@ async function loadImpl<T>(
 	const disabledExtensionIds = new Set<string>(
 		options.disabledExtensions ?? (settings ? cfgDisabledExtensions.get(settings) : undefined) ?? [],
 	);
+	const dropProjectItems =
+		PROJECT_CODE_CAPABILITIES[capability.id] === true && !isProjectCodeTrusted(options.settings ?? settings);
 
 	const results = await Promise.all(
 		providers.map(async provider => {
@@ -196,6 +220,10 @@ async function loadImpl<T>(
 			const extensionId = capability.toExtensionId?.(itemWithSource);
 			const isDisabled = extensionId !== undefined && disabledExtensionIds.has(extensionId);
 			if (isDisabled && !options.includeDisabled) {
+				continue;
+			}
+
+			if (dropProjectItems && itemWithSource._source.level === "project") {
 				continue;
 			}
 
