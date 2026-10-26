@@ -182,9 +182,23 @@ describe("HTML export template", () => {
 		expect(buildExitCode, `${buildStdout}\n${buildStderr}`).toBe(0);
 		expect(await Bun.file(staleAssetPath).exists()).toBe(false);
 
-		const packDir = path.join(tempRoot, "production-package");
+		// Pack the way a release does: from a workspace member, so `catalog:` ranges resolve
+		// against the root manifest (Bun 1.4.4+ fails the pack without it).
+		const packRoot = path.join(tempRoot, "production-package");
+		const packDir = path.join(packRoot, "packages", "coding-agent");
+		const rootManifest = (await Bun.file(path.resolve(packageDir, "../../package.json")).json()) as {
+			workspaces: { catalog: Record<string, string> };
+		};
+		await Bun.write(
+			path.join(packRoot, "package.json"),
+			JSON.stringify({
+				name: "omp-html-pack-root",
+				private: true,
+				workspaces: { packages: ["packages/*"], catalog: rootManifest.workspaces.catalog },
+			}),
+		);
 		await Bun.write(path.join(packDir, "package.json"), Bun.file(path.join(packageDir, "package.json")));
-		await Bun.write(path.join(packDir, "bun.lock"), Bun.file(path.resolve(packageDir, "../../bun.lock")));
+		await Bun.write(path.join(packRoot, "bun.lock"), Bun.file(path.resolve(packageDir, "../../bun.lock")));
 		for (const entry of await fs.promises.readdir(productionBundleDir)) {
 			await Bun.write(path.join(packDir, "dist", entry), Bun.file(path.join(productionBundleDir, entry)));
 		}
