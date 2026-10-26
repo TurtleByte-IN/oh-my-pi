@@ -66,6 +66,14 @@ on:
             description: "Skip npm publish"
             type: boolean
             default: false
+         release_dry_run:
+            description: "Build, smoke and checksum every release binary without publishing (any ref)"
+            type: boolean
+            default: false
+   # Fork releases only: .github/workflows/fork-release.yml calls this workflow
+   # for a pushed `v*` tag, and its caller job is skipped in can1357/oh-my-pi,
+   # where the release still comes from the atomic main+tag push above.
+   workflow_call:
 
 # Release runs publish a `v*` tag pushed atomically with main HEAD; sharing
 # the cheap branch-wide `CI-refs/heads/main` group meant a later main push
@@ -100,13 +108,23 @@ jobs:
    # scripts/release.ts pushes the version-bump commit and its `v*` tag
    # atomically (`git push --atomic origin refs/heads/main:refs/heads/main
    # <sha>:refs/tags/v<version>`), so a release now arrives as a single `push` to
-   # `refs/heads/main` — we no longer trigger on the tag ref at all (see
+   # `refs/heads/main` — this workflow has no tag-push trigger at all (see
    # `on.push`). This one branch-push run is therefore authoritative: it runs the
    # full build AND, when HEAD carries a release tag, the release/publish jobs.
    # `release_metadata` resolves that tag once so downstream jobs switch on
    # `is-release` and address the tag by name — `github.ref` is
    # `refs/heads/main` here, not the tag. A `workflow_dispatch` from a `v*` tag
    # ref (or from a tagged main HEAD) is also treated as a release.
+   #
+   # Forks (TurtleByte-IN/oh-my-pi, docs/fork-release.md) differ in two ways.
+   # They release only from a `v*` tag ref: fork-release.yml calls this
+   # workflow (`workflow_call`) for a pushed tag, and its caller job never runs
+   # in can1357/oh-my-pi; a tagged fork main HEAD is not a release, so an
+   # atomic main+tag push releases once. A `release_dry_run` dispatch on any
+   # ref sets `build-release` without `is-release`: it builds, smokes and
+   # checksums every binary, signs macOS ad hoc, and publishes nothing.
+   # Release tags must match RELEASE_TAG_RE below; every later step reads the
+   # tag from `env:`, never by pasting it into a script.
    release_metadata:
       name: Resolve release metadata
       # Hosted, not omp-kata: this ~20 s git-tag probe gates the whole release
@@ -115,6 +133,8 @@ jobs:
       runs-on: ubuntu-22.04
       outputs:
          is-release: ${{ steps.detect.outputs.is-release }}
+         # Gates the binary build/smoke/checksum jobs: a release or a dry run.
+         build-release: ${{ steps.detect.outputs.build-release }}
          release-tag: ${{ steps.detect.outputs.release-tag }}
          # Canary tags publish to npm's canary dist-tag (derived script-side), mark
          # the GitHub release prerelease, and skip the stable-only brew tap.
@@ -131,20 +151,32 @@ jobs:
          - name: Detect release tag at HEAD
            id: detect
            shell: bash
+           env:
+              DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.release_dry_run }}
+              UPSTREAM: ${{ github.repository == 'can1357/oh-my-pi' }}
            run: |
               is_release=false
               release_tag=""
               channel=stable
-              case "${{ github.ref }}" in
+              case "$GITHUB_REF" in
                 refs/tags/v[0-9]*)
-                  release_tag="${{ github.ref_name }}"
+                  # Upstream releases from the atomic main push; a tag push
+                  # there must never release a second time.
+                  if [ "$UPSTREAM" != true ] || [ "$GITHUB_EVENT_NAME" != push ]; then
+                    release_tag="$GITHUB_REF_NAME"
+                  fi
                   ;;
                 refs/heads/main)
-                  if [ "${{ github.event_name }}" != "pull_request" ]; then
+                  if [ "$GITHUB_EVENT_NAME" != "pull_request" ] && [ "$UPSTREAM" = true ]; then
                     release_tag=$(git tag --points-at HEAD | grep -E '^v[0-9]' | head -n1 || true)
                   fi
                   ;;
               esac
+              RELEASE_TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+              if [ -n "$release_tag" ] && ! [[ "$release_tag" =~ $RELEASE_TAG_RE ]]; then
+                echo "::error title=Invalid release tag::tags must match $RELEASE_TAG_RE"
+                exit 1
+              fi
               if [ -n "$release_tag" ]; then
                 echo "HEAD carries release tag $release_tag; this run builds and publishes the release."
                 is_release=true
@@ -152,15 +184,24 @@ jobs:
               if [[ "$release_tag" == *-canary.* ]]; then
                 channel=canary
               fi
+              build_release="$is_release"
+              if [ "$DRY_RUN" = true ]; then
+                echo "Release dry run: building every release binary; nothing is published."
+                is_release=false
+                build_release=true
+              fi
               {
                 echo "is-release=$is_release"
+                echo "build-release=$build_release"
                 echo "release-tag=$release_tag"
                 echo "channel=$channel"
               } >> "$GITHUB_OUTPUT"
 
    check:
       name: Lint, type check & web build
-      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      # omp-kata is upstream's self-hosted pool; every other repository (the
+      # TurtleByte-IN fork) runs the same job on a GitHub-hosted runner.
+      runs-on: ${{ (github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && 'ubuntu-22.04' || 'omp-kata' }}
       steps:
          - uses: actions/checkout@v4
          - uses: ./.github/actions/bun-install
@@ -230,7 +271,7 @@ jobs:
    rust_validate:
       name: Validate Rust workspace (bazel)
       if: github.event_name != 'pull_request'
-      runs-on: omp-kata
+      runs-on: ${{ github.repository == 'can1357/oh-my-pi' && 'omp-kata' || 'ubuntu-22.04' }}
       steps:
          - uses: actions/checkout@v4
          - uses: ./.github/actions/bun-install
@@ -284,7 +325,7 @@ jobs:
    # with required checks.
    native_addons:
       name: Build native addons (bazel)
-      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      runs-on: ${{ (github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && 'ubuntu-22.04' || 'omp-kata' }}
       # actions: write lets main prune superseded addon cache entries.
       permissions:
          contents: read
@@ -506,11 +547,16 @@ jobs:
    # release jobs consume them, so they build beside the TS fan-out instead of
    # ahead of it: serially after the pair they held every test job back ~10
    # min on native-changing main pushes. Non-PR only, like rust_validate;
-   # the build also keeps the remote cache warm for release runs.
+   # the build also keeps the remote cache warm for release runs. Without that
+   # remote cache (forks on GitHub-hosted runners) it only runs for tag
+   # releases and release dry runs, since nothing else consumes it. Decided
+   # from the event alone so upstream never waits on release_metadata.
    native_addons_cross:
       name: Build native addons (bazel, cross targets)
-      if: github.event_name != 'pull_request'
-      runs-on: omp-kata
+      if: ${{ github.event_name != 'pull_request' &&
+         (github.repository == 'can1357/oh-my-pi' || startsWith(github.ref, 'refs/tags/v') ||
+         (github.event_name == 'workflow_dispatch' && inputs.release_dry_run)) }}
+      runs-on: ${{ github.repository == 'can1357/oh-my-pi' && 'omp-kata' || 'ubuntu-22.04' }}
       steps:
          - uses: actions/checkout@v4
          - id: cache
@@ -575,7 +621,7 @@ jobs:
 
    test_coding_agent_native:
       name: "Test coding-agent native/unit (TS) ${{ matrix.shard }}"
-      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      runs-on: ${{ (github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && 'ubuntu-22.04' || 'omp-kata' }}
       needs: [native_addons]
       if: ${{ !cancelled() && needs.native_addons.result == 'success' }}
       timeout-minutes: 25
@@ -590,7 +636,7 @@ jobs:
       strategy:
          fail-fast: false
          matrix:
-            shard: ${{ fromJSON(github.event_name == 'pull_request' && '["1/3","2/3","3/3"]' || '["1/1"]') }}
+            shard: ${{ fromJSON((github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && '["1/3","2/3","3/3"]' || '["1/1"]') }}
       steps:
          - uses: actions/checkout@v4
          - uses: ./.github/actions/bun-install
@@ -606,7 +652,7 @@ jobs:
 
    test_workspace:
       name: Test TS workspace fast
-      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      runs-on: ${{ (github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && 'ubuntu-22.04' || 'omp-kata' }}
       needs: [native_addons]
       if: ${{ !cancelled() && needs.native_addons.result == 'success' }}
       timeout-minutes: 20
@@ -629,7 +675,7 @@ jobs:
 
    test_coding_agent_singleton:
       name: Test coding-agent singleton/global-state (TS)
-      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      runs-on: ${{ (github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && 'ubuntu-22.04' || 'omp-kata' }}
       needs: [native_addons]
       if: ${{ !cancelled() && needs.native_addons.result == 'success' }}
       timeout-minutes: 20
@@ -647,7 +693,7 @@ jobs:
 
    test_ts_native:
       name: Test TS native/integration packages
-      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      runs-on: ${{ (github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && 'ubuntu-22.04' || 'omp-kata' }}
       needs: [native_addons]
       if: ${{ !cancelled() && needs.native_addons.result == 'success' }}
       timeout-minutes: 25
@@ -667,7 +713,7 @@ jobs:
 
    test_coding_agent_ui:
       name: Test coding-agent UI/TUI (TS)
-      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      runs-on: ${{ (github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && 'ubuntu-22.04' || 'omp-kata' }}
       needs: [native_addons]
       if: ${{ !cancelled() && needs.native_addons.result == 'success' }}
       timeout-minutes: 25
@@ -685,7 +731,7 @@ jobs:
 
    test_coding_agent_runtime:
       name: Test coding-agent runtime/session (TS)
-      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      runs-on: ${{ (github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && 'ubuntu-22.04' || 'omp-kata' }}
       needs: [native_addons]
       if: ${{ !cancelled() && needs.native_addons.result == 'success' }}
       timeout-minutes: 25
@@ -705,7 +751,7 @@ jobs:
 
    test_smoke:
       name: Test CLI smoke (TS)
-      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      runs-on: ${{ (github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && 'ubuntu-22.04' || 'omp-kata' }}
       needs: [native_addons]
       if: ${{ !cancelled() && needs.native_addons.result == 'success' }}
       timeout-minutes: 15
@@ -721,7 +767,7 @@ jobs:
 
    install_methods:
       name: Install method smoke tests
-      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      runs-on: ${{ (github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && 'ubuntu-22.04' || 'omp-kata' }}
       needs: [native_addons]
       if: ${{ !cancelled() && needs.native_addons.result == 'success' }}
       steps:
@@ -774,7 +820,7 @@ jobs:
    # release_gate downstream.
    release_binary:
       name: "Release binary: ${{ matrix.target_id }}"
-      if: ${{ needs.release_metadata.outputs.is-release == 'true' && !cancelled() &&
+      if: ${{ needs.release_metadata.outputs.build-release == 'true' && !cancelled() &&
          needs.native_addons.result == 'success' &&
          needs.native_addons_cross.result == 'success' }}
       needs: [release_metadata, native_addons, native_addons_cross]
@@ -835,6 +881,10 @@ jobs:
                     native_targets: win32-arm64,
                  }
       runs-on: ubuntu-22.04
+      # Fork tag releases run in the `release` environment, which holds the
+      # APPLE_* secrets and admits only `v*` tags (docs/fork-release.md).
+      # Dry runs and upstream use no environment.
+      environment: ${{ github.repository != 'can1357/oh-my-pi' && needs.release_metadata.outputs.is-release == 'true' && 'release' || '' }}
       permissions:
          contents: read
       steps:
@@ -861,15 +911,17 @@ jobs:
            # Replaces bun's signature with a Developer ID + hardened-runtime one
            # carrying the required JIT, Apple Events, and library-validation
            # entitlements, then notarizes; ad hoc with the same entitlements
-           # until the APPLE_* secrets are configured.
+           # until the APPLE_* secrets are configured. Only real releases get
+           # the secrets: a release dry run (any ref) always signs ad hoc.
            if: matrix.platform == 'darwin'
            env:
-              APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-              APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-              APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-              APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
-              APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-           run: bash scripts/ci-macos-sign.sh "${{ matrix.binary_path }}"
+              APPLE_CERTIFICATE_P12: ${{ needs.release_metadata.outputs.is-release == 'true' && secrets.APPLE_CERTIFICATE_P12 || '' }}
+              APPLE_CERTIFICATE_PASSWORD: ${{ needs.release_metadata.outputs.is-release == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+              APPLE_API_KEY_ID: ${{ needs.release_metadata.outputs.is-release == 'true' && secrets.APPLE_API_KEY_ID || '' }}
+              APPLE_API_ISSUER_ID: ${{ needs.release_metadata.outputs.is-release == 'true' && secrets.APPLE_API_ISSUER_ID || '' }}
+              APPLE_API_KEY: ${{ needs.release_metadata.outputs.is-release == 'true' && secrets.APPLE_API_KEY || '' }}
+              BINARY: ${{ matrix.binary_path }}
+           run: bash scripts/ci-macos-sign.sh "$BINARY"
          - name: Upload release binary artifact
            uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
            with:
@@ -895,7 +947,7 @@ jobs:
    # re-verifies the published assets.
    release_smoke:
       name: "Smoke release binary: ${{ matrix.target_id }}"
-      if: ${{ needs.release_metadata.outputs.is-release == 'true' && !cancelled() &&
+      if: ${{ needs.release_metadata.outputs.build-release == 'true' && !cancelled() &&
          needs.release_binary.result == 'success' }}
       needs: [release_metadata, release_binary]
       strategy:
@@ -913,10 +965,14 @@ jobs:
                - { os: windows-2025, target_id: win32-x64, binary: omp-windows-x64.exe }
                - { os: windows-11-arm, target_id: win32-arm64, binary: omp-windows-arm64.exe }
       runs-on: ${{ matrix.os }}
+      # Same environment as release_binary, so the Developer ID assertion
+      # sees the fork's environment-scoped APPLE_* secrets.
+      environment: ${{ github.repository != 'can1357/oh-my-pi' && needs.release_metadata.outputs.is-release == 'true' && 'release' || '' }}
       permissions:
          contents: read
       env:
-         MACOS_SIGNING: ${{ secrets.APPLE_CERTIFICATE_P12 != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER_ID != '' && secrets.APPLE_API_KEY != '' }}
+         # Dry runs sign ad hoc (release_binary), so only releases assert.
+         MACOS_SIGNING: ${{ needs.release_metadata.outputs.is-release == 'true' && secrets.APPLE_CERTIFICATE_P12 != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER_ID != '' && secrets.APPLE_API_KEY != '' }}
       steps:
          - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
            with:
@@ -988,7 +1044,9 @@ jobs:
    # packages/natives/native), so no per-platform runners are needed.
    release_native_leaves:
       name: Publish native leaf packages
+      # Upstream-only: forks own no @oh-my-pi npm scope (docs/fork-release.md).
       if: ${{ needs.release_metadata.outputs.is-release == 'true' && !cancelled() &&
+         github.repository == 'can1357/oh-my-pi' &&
          needs.release_gate.result == 'success' &&
          needs.release_binary.result == 'success' &&
          needs.release_smoke.result == 'success' &&
@@ -1074,18 +1132,71 @@ jobs:
                 exit 1
               fi
 
+   # Assembles every GitHub Release asset once smoke passed: the binaries, the
+   # browser relay archive, LICENSE and THIRD-PARTY-NOTICES.txt, and
+   # SHA256SUMS.txt covering them all; forks also get a per-file
+   # `<asset>.sha256` beside each (upstream's asset set is unchanged). Runs
+   # for release dry runs too, so `release-assets` is the exact set a tag
+   # would publish.
+   release_assets:
+      name: Assemble release assets and checksums
+      if: ${{ needs.release_metadata.outputs.build-release == 'true' && !cancelled() &&
+         needs.release_binary.result == 'success' &&
+         needs.release_smoke.result == 'success' }}
+      needs: [release_metadata, release_binary, release_smoke]
+      runs-on: ubuntu-22.04
+      permissions:
+         contents: read
+      steps:
+         - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+         - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+         - name: Download release binaries
+           uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+           with:
+              pattern: omp-binary-*
+              path: release-assets
+              merge-multiple: true
+         # Dependency-free build (bun APIs + zip only), so no `bun install`
+         # is needed on this runner.
+         - name: Build browser relay artifacts
+           run: bun run --cwd packages/browser-relay build
+         # Generated after every other release asset is in place, so
+         # SHA256SUMS.txt covers every other file uploaded alongside it.
+         - name: Generate checksums
+           env:
+              PER_FILE: ${{ github.repository != 'can1357/oh-my-pi' && '--per-file' || '' }}
+           run: |
+              set -euo pipefail
+              cp packages/browser-relay/dist/omp-browser-relay-extension.zip LICENSE THIRD-PARTY-NOTICES.txt release-assets/
+              # Unquoted on purpose: an empty PER_FILE must pass no argument.
+              # shellcheck disable=SC2086
+              bun run ci:release:checksums $PER_FILE release-assets/SHA256SUMS.txt release-assets/*
+              ls -l release-assets
+              cat release-assets/SHA256SUMS.txt
+         - name: Upload release assets
+           uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+           with:
+              name: release-assets
+              path: release-assets/*
+              if-no-files-found: error
+
    release_github:
       name: Publish GitHub release
       if: ${{ needs.release_metadata.outputs.is-release == 'true' && !cancelled() &&
          needs.release_gate.result == 'success' &&
          needs.release_binary.result == 'success' &&
-         needs.release_smoke.result == 'success' }}
-      needs: [release_metadata, release_gate, release_binary, release_smoke]
+         needs.release_smoke.result == 'success' &&
+         needs.release_assets.result == 'success' }}
+      needs: [release_metadata, release_gate, release_binary, release_smoke, release_assets]
       runs-on: ubuntu-22.04
       permissions:
          contents: write
       steps:
          - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+           with:
+              # The write-scoped token is only needed by gh/softprops below,
+              # which take it from env/inputs; keep it out of .git/config.
+              persist-credentials: false
          - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
          - name: Generate release notes from CHANGELOGs
            env:
@@ -1095,38 +1206,43 @@ jobs:
               # it gh exits non-zero and the script would degrade to legacy
               # single-version notes, defeating the recovery.
               GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-           run: bun scripts/ci-release-notes.ts ${{ needs.release_metadata.outputs.release-tag }}
-         - name: Download release binaries
+              RELEASE_TAG: ${{ needs.release_metadata.outputs.release-tag }}
+           run: bun scripts/ci-release-notes.ts "$RELEASE_TAG"
+         - name: Download release assets
            uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
            with:
-              pattern: omp-binary-*
-              path: packages/coding-agent/binaries
-              merge-multiple: true
-         # Dependency-free build (bun APIs + zip only), so no `bun install`
-         # is needed on this runner.
-         - name: Build browser relay artifacts
-           run: bun run --cwd packages/browser-relay build
-         # Generated after every other release asset is in place and before
-         # the release is created, so SHA256SUMS.txt itself ships as an asset
-         # and covers every other file uploaded alongside it.
-         - name: Generate checksums
+              name: release-assets
+              path: release-assets
+         # Fork releases come from a pushed tag, so nothing else ties them to
+         # main: refuse a tag on a commit main does not contain, and a tag
+         # moved since this run built its binaries. Checked last, right
+         # before publishing, to keep the window small.
+         - name: Verify the release tag (fork)
+           if: github.repository != 'can1357/oh-my-pi'
+           env:
+              GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              RELEASE_TAG: ${{ needs.release_metadata.outputs.release-tag }}
            run: |
-              bun run ci:release:checksums SHA256SUMS.txt \
-                packages/coding-agent/binaries/omp-* \
-                packages/browser-relay/dist/omp-browser-relay-extension.zip \
-                LICENSE \
-                THIRD-PARTY-NOTICES.txt
+              set -euo pipefail
+              tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)"
+              if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+                echo "::error title=Release tag moved::$RELEASE_TAG points at $tag_sha, but this run built $GITHUB_SHA"
+                exit 1
+              fi
+              status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" --jq .status)"
+              case "$status" in
+                identical|ahead) echo "$RELEASE_TAG ($GITHUB_SHA) is on main" ;;
+                *)
+                  echo "::error title=Release tag not on main::$GITHUB_SHA is not reachable from main (compare status: $status)"
+                  exit 1
+                  ;;
+              esac
          - name: Create GitHub Release
            uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
            with:
               tag_name: ${{ needs.release_metadata.outputs.release-tag }}
               prerelease: ${{ needs.release_metadata.outputs.channel == 'canary' }}
-              files: |
-                 packages/coding-agent/binaries/omp-*
-                 packages/browser-relay/dist/omp-browser-relay-extension.zip
-                 LICENSE
-                 THIRD-PARTY-NOTICES.txt
-                 SHA256SUMS.txt
+              files: release-assets/*
               body_path: release-notes.md
               generate_release_notes: true
 
@@ -1137,7 +1253,9 @@ jobs:
    # clients never read npm.
    release_build:
       name: Publish to build.stencil.so
+      # Upstream-only: build.stencil.so trusts upstream's OIDC publisher only.
       if: ${{ needs.release_metadata.outputs.is-release == 'true' && !cancelled() &&
+         github.repository == 'can1357/oh-my-pi' &&
          needs.release_gate.result == 'success' &&
          needs.release_binary.result == 'success' &&
          needs.release_smoke.result == 'success' &&
@@ -1160,11 +1278,15 @@ jobs:
               merge-multiple: true
          # Dependency-free script (bun APIs + curl), so no `bun install`.
          - name: Publish to build.stencil.so
-           run: bun scripts/ci-build-upload.ts "${{ needs.release_metadata.outputs.release-tag }}" packages/coding-agent/binaries/omp-*
+           env:
+              RELEASE_TAG: ${{ needs.release_metadata.outputs.release-tag }}
+           run: bun scripts/ci-build-upload.ts "$RELEASE_TAG" packages/coding-agent/binaries/omp-*
 
    release_npm:
       name: Publish to npm
+      # Upstream-only, like release_native_leaves.
       if: ${{ needs.release_metadata.outputs.is-release == 'true' && !cancelled() &&
+         github.repository == 'can1357/oh-my-pi' &&
          needs.release_binary.result == 'success' &&
          needs.release_smoke.result == 'success' &&
          needs.release_build.result == 'success' &&
@@ -1233,7 +1355,9 @@ jobs:
    # never blocks on tap access.
    release_brew:
       name: Update Homebrew tap
+      # Upstream-only: the tap is can1357/homebrew-tap.
       if: ${{ needs.release_metadata.outputs.is-release == 'true' && !cancelled() &&
+         github.repository == 'can1357/oh-my-pi' &&
          needs.release_metadata.outputs.channel != 'canary' &&
          needs.release_build.result == 'success' }}
       needs: [release_metadata, release_build]
@@ -1254,14 +1378,16 @@ jobs:
               path: homebrew-tap
          - name: Regenerate and push the formula
            if: env.HAS_TAP_KEY == 'true'
+           env:
+              RELEASE_TAG: ${{ needs.release_metadata.outputs.release-tag }}
            run: |
-              bun scripts/ci-update-brew-formula.ts "${{ needs.release_metadata.outputs.release-tag }}" --out homebrew-tap/Formula/omp.rb
+              bun scripts/ci-update-brew-formula.ts "$RELEASE_TAG" --out homebrew-tap/Formula/omp.rb
               cd homebrew-tap
               if git diff --quiet -- Formula/omp.rb; then
-                echo "formula already up to date for ${{ needs.release_metadata.outputs.release-tag }}"
+                echo "formula already up to date for $RELEASE_TAG"
                 exit 0
               fi
               git -c user.name="github-actions[bot]" \
                   -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-                  commit -m "omp ${{ needs.release_metadata.outputs.release-tag }}" -- Formula/omp.rb
+                  commit -m "omp $RELEASE_TAG" -- Formula/omp.rb
               git push origin HEAD:main

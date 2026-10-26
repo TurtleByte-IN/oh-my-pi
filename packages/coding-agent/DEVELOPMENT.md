@@ -155,6 +155,7 @@ Top-level entry modules: `cli.ts`, `main.ts`, `sdk.ts`, `index.ts` (SDK barrel),
 
 ### Build, release, and porting
 - [macos-signing-notarization.md](../../docs/macos-signing-notarization.md)
+- [fork-release.md](../../docs/fork-release.md)
 - [porting-from-pi-mono.md](../../docs/porting-from-pi-mono.md)
 
 ## Extending omp

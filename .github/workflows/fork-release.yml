@@ -1,0 +1,29 @@
+name: Fork release
+
+# Releases the TurtleByte-IN fork from a pushed `v*` tag by running the full
+# CI workflow (build, validation gate, release binaries, smoke, assets, GitHub
+# Release) on the tag ref. Upstream releases from its atomic main+tag push in
+# ci.yml instead, so in can1357/oh-my-pi the only job here is skipped and a tag
+# push runs nothing. See docs/fork-release.md.
+
+on:
+   push:
+      tags: ["v*"]
+
+permissions:
+   contents: read
+
+jobs:
+   release:
+      name: Release
+      if: github.repository != 'can1357/oh-my-pi'
+      uses: ./.github/workflows/ci.yml
+      # A called workflow's jobs cannot exceed the caller's grant: release_github
+      # publishes (contents: write), native_addons prunes caches (actions: write)
+      # and the upstream-only publish jobs, skipped here, declare id-token: write.
+      permissions:
+         contents: write
+         actions: write
+         id-token: write
+      # Developer ID signing reads APPLE_* from the `release` environment.
+      secrets: inherit

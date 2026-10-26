@@ -434,14 +434,16 @@ describe("relay tabs Chrome detaches omp from", () => {
 			await invoke({ action: "run", code: 'await tab.emulate({ userAgent: "omp-detach-test" });', timeout: 10 });
 			const tab = getTab(name);
 			if (tab?.backend !== "worker") throw new Error("expected a worker tab");
-			// Hold the re-adoption for the call's whole budget once the detached worker is gone. Real time: the
-			// re-adoption's own init deadline reads the same clock, so a faked clock would fail it instead.
-			const budgetMs = 1_000;
-			const terminate = tab.worker.terminate.bind(tab.worker);
-			const held = spyOn(tab.worker, "terminate").mockImplementation(async () => {
-				await terminate();
-				await Bun.sleep(budgetMs);
-			});
+			// The re-adoption must succeed and leave nothing of the call's budget. Holding it in real time ate into
+			// its own init deadline, so a slow cold worker start (past the 2s setup floor) failed the re-adoption
+			// instead. The supervisor's clock jumps past the budget only once the new worker is published, after
+			// its init deadline has been read for the last time; the budget is large so that init never runs short.
+			const budgetMs = 30_000;
+			const detachedWorker = tab.worker;
+			const now = performance.now.bind(performance);
+			const clock = spyOn(performance, "now").mockImplementation(
+				() => now() + (tab.worker === detachedWorker ? 0 : budgetMs),
+			);
 			try {
 				const reapplying = ext.nextSend("Network.setUserAgentOverride");
 				const next = runInTab(name, { code: readMark.code, timeoutMs: budgetMs, session: tool }).catch(
@@ -450,10 +452,11 @@ describe("relay tabs Chrome detaches omp from", () => {
 				await reapplying;
 				await ext.chromeDetach("target_closed");
 				const failure = String(await next);
+				expect(tab.worker).not.toBe(detachedWorker);
 				expect(failure).toContain("before this call, so its code did not run");
 				expect(failure).toContain(`used up this call's ${budgetMs}ms budget, so the call was not run again`);
 			} finally {
-				held.mockRestore();
+				clock.mockRestore();
 			}
 			expect((await invoke(readMark)).value).toBe("kept");
 		},

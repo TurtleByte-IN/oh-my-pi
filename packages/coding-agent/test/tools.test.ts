@@ -17,6 +17,7 @@ import { ReadTool } from "@oh-my-pi/pi-coding-agent/tools/read";
 import * as toolTimeouts from "@oh-my-pi/pi-coding-agent/tools/tool-timeouts";
 import { WriteTool } from "@oh-my-pi/pi-coding-agent/tools/write";
 import { $which, removeSyncWithRetries, Snowflake } from "@oh-my-pi/pi-utils";
+import * as archiveModule from "@oh-my-pi/pi-utils/ar";
 import { openArchive, readArchiveEntries } from "@oh-my-pi/pi-utils/ar";
 import { GlobTool } from "../src/tools/glob";
 import { DEFAULT_FILE_LIMIT, GrepTool, MULTI_FILE_PER_FILE_MATCHES } from "../src/tools/grep";
@@ -1851,6 +1852,29 @@ describe("Coding Agent Tools", () => {
 			const output = getTextOutput(await readTool.execute("test-call-zip-after", { path: archivePath }));
 			expect(output).toContain("bravo.txt");
 			expect(output).not.toContain("alpha.txt");
+		});
+
+		it("serves an archive unchanged since a read outside the racy window from the reader cache", async () => {
+			const archivePath = path.join(testDir, "settled.zip");
+			fs.writeFileSync(archivePath, createZipArchive([{ path: "alpha.txt", content: "first\n" }]));
+			// Reads within 2s of the last change are not cached (coarse ctime ticks); age the change past that.
+			const realNow = Date.now;
+			const clock = vi.spyOn(Date, "now").mockImplementation(() => realNow() + 5_000);
+			const opens = vi.spyOn(archiveModule, "openArchive");
+			try {
+				expect(getTextOutput(await readTool.execute("test-call-zip-settled-1", { path: archivePath }))).toContain(
+					"alpha.txt",
+				);
+				const opensAfterFirstRead = opens.mock.calls.length;
+				expect(opensAfterFirstRead).toBeGreaterThan(0);
+				expect(getTextOutput(await readTool.execute("test-call-zip-settled-2", { path: archivePath }))).toContain(
+					"alpha.txt",
+				);
+				expect(opens.mock.calls.length).toBe(opensAfterFirstRead);
+			} finally {
+				opens.mockRestore();
+				clock.mockRestore();
+			}
 		});
 
 		it("should list zip archives without inflating member payloads", async () => {
