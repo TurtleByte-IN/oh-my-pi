@@ -48,6 +48,7 @@ const makeDeps = (
 		onHostToolResult: () => {},
 		onHostToolUpdate: () => {},
 		onHostUriResult: () => {},
+		onHostCwdChangeResult: () => {},
 	};
 	return { deps, outputs };
 };

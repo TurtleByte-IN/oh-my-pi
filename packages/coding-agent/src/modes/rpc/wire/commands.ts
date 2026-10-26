@@ -188,6 +188,13 @@ export const rpcCommands: readonly RpcCommandSpec[] = [
 		unwrap: "schemes",
 	},
 	{
+		name: "set_host_cwd_change",
+		doc: "Route `/wt` and `/move` through the host: when enabled they send `host_cwd_change_request` and follow the host's reply instead of changing directory on their own.",
+		params: { enabled: "boolean" },
+		result: { enabled: "boolean" },
+		unwrap: "enabled",
+	},
+	{
 		name: "set_subagent_subscription",
 		doc: "Select which subagent frames are forwarded.",
 		params: { level: "SubagentSubscriptionLevel" },

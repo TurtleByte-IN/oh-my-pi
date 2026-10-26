@@ -18,5 +18,9 @@
 	{
 		"version": "1.4.0",
 		"schemaHash": "sha256:191d20dd3c5b45c9c18d619a9fd6d493af43325f1bec32aeb22243998d04b4ef"
+	},
+	{
+		"version": "1.5.0",
+		"schemaHash": "sha256:90263e88b75dfdda152d9403467c8c2dbc5517ced6ac99bc6c899fbbf4f2c6ff"
 	}
 ]

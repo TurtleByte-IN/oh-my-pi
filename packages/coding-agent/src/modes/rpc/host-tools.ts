@@ -3,6 +3,7 @@ import type { Static, TSchema } from "@oh-my-pi/pi-ai";
 import { Snowflake } from "@oh-my-pi/pi-utils";
 import { applyToolProxy } from "../../extensibility/tool-proxy";
 import type { Theme } from "@oh-my-pi/pi-tui/theme";
+import { formatApprovalArguments } from "../../tools/approval";
 import { defaultLoadModeForToolName } from "../../tools/essential-tools";
 import type {
 	RpcHostToolCallRequest,
@@ -58,6 +59,11 @@ class RpcHostToolAdapter<TParams extends TSchema = TSchema, TTheme extends Theme
 		this.#bridge = bridge;
 		applyToolProxy(definition, this);
 		this.loadMode = defaultLoadModeForToolName(definition.name, definition.loadMode);
+	}
+
+	/** Host tools carry no approval formatter of their own: show the call's arguments, as MCP tools do. */
+	formatApprovalDetails(args: unknown): string[] {
+		return formatApprovalArguments(args);
 	}
 
 	execute(

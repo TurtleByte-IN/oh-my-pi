@@ -312,12 +312,44 @@ export const frameDefs = {
 		},
 		"Completes a pending host URI request.",
 	),
+	HostCwdChangeReason: doc(
+		"'worktree' | 'move'",
+		"Which command wants to change the session directory: `/wt` (`worktree`) or `/move` (`move`).",
+	),
+	HostCwdChangeRequest: doc(
+		{
+			type: "'host_cwd_change_request'",
+			id: "string",
+			reason: "HostCwdChangeReason",
+			cwd: doc("string", "The session's current working directory."),
+			"path?": doc("string", "`move` only: the resolved, existing target directory."),
+			"branch?": doc("string", "`worktree` only: the branch the user asked for, or a generated default."),
+		},
+		"Asks the host to own a session directory change; sent only after `set_host_cwd_change` enabled it. For `worktree` the host creates the worktree; for `move` it approves the target.",
+	),
+	HostCwdChangeCancelRequest: doc(
+		{ type: "'host_cwd_change_cancel'", id: "string", targetId: "string" },
+		"The command waiting on `targetId` was aborted; the server ignores any later result for it.",
+	),
+	HostCwdChangeResult: doc(
+		{
+			type: "'host_cwd_change_result'",
+			id: "string",
+			accepted: "boolean",
+			"cwd?": doc(
+				"string",
+				"Absolute existing directory to move the session into. Required to accept `worktree`; defaults to the request `path` for `move`.",
+			),
+			"error?": doc("string", "Reason shown to the user when `accepted` is false."),
+		},
+		"Host reply to a `host_cwd_change_request`: on accept the server moves the session into `cwd`; on reject it stays put.",
+	),
 	RpcHostRequest: doc(
-		"HostToolCallRequest | HostToolCancelRequest | HostUriRequest | HostUriCancelRequest",
-		"Server request for host-owned tools and URI schemes, discriminated by `type`.",
+		"HostToolCallRequest | HostToolCancelRequest | HostUriRequest | HostUriCancelRequest | HostCwdChangeRequest | HostCwdChangeCancelRequest",
+		"Server request for host-owned tools, URI schemes, and directory changes, discriminated by `type`.",
 	),
 	RpcInbound: doc(
-		"ExtensionUiResponse | HostToolUpdate | HostToolResult | HostUriResult",
+		"ExtensionUiResponse | HostToolUpdate | HostToolResult | HostUriResult | HostCwdChangeResult",
 		"Non-command frame the host sends, discriminated by `type`.",
 	),
 	RpcResponse: doc(

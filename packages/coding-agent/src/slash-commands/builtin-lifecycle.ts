@@ -25,6 +25,8 @@ import { resolveToCwd } from "../tools/path-utils";
 import { commandConsumed, errorMessage, usage } from "./helpers/parse";
 import { handleSshAcp } from "./helpers/ssh";
 import type {
+	HostCwdChange,
+	HostCwdChangeVerdict,
 	ParsedSlashCommand,
 	SlashCommandResult,
 	SlashCommandRuntime,
@@ -130,6 +132,42 @@ async function relocateHeadlessSession(
 	await runtime.notifyConfigChanged?.();
 	await runtime.notifyTitleChanged?.();
 	return undefined;
+}
+
+/**
+ * Hand `change` to the RPC host (`host_cwd_change_request`) and return the
+ * absolute, existing directory it chose. Returns a result instead when the host
+ * refused, the request failed, or the host named an unusable directory.
+ */
+async function askHostForCwd(
+	runtime: SlashCommandRuntime,
+	requestHostCwdChange: NonNullable<SlashCommandRuntime["requestHostCwdChange"]>,
+	change: HostCwdChange,
+	label: string,
+): Promise<string | SlashCommandResult> {
+	let verdict: HostCwdChangeVerdict;
+	try {
+		verdict = await requestHostCwdChange(change, runtime.signal);
+	} catch (err) {
+		return usage(`${label} failed: ${errorMessage(err)}`, runtime);
+	}
+	if (!verdict.accepted) {
+		return usage(
+			verdict.error ? `${label} rejected by host: ${verdict.error}` : `${label} rejected by host.`,
+			runtime,
+		);
+	}
+	if (!path.isAbsolute(verdict.cwd)) {
+		return usage(`${label} failed: host returned a relative directory: ${verdict.cwd}`, runtime);
+	}
+	try {
+		if (!(await fs.stat(verdict.cwd)).isDirectory()) {
+			return usage(`${label} failed: host returned a non-directory: ${verdict.cwd}`, runtime);
+		}
+	} catch {
+		return usage(`${label} failed: host returned a directory that does not exist: ${verdict.cwd}`, runtime);
+	}
+	return verdict.cwd;
 }
 
 export const BUILTIN_LIFECYCLE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
@@ -726,7 +764,18 @@ export const BUILTIN_LIFECYCLE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> =
 			} catch {
 				return usage(`Directory does not exist: ${resolvedPath}`, runtime);
 			}
-			const failure = await relocateHeadlessSession(runtime, resolvedPath);
+			let target = resolvedPath;
+			if (runtime.requestHostCwdChange) {
+				const hostTarget = await askHostForCwd(
+					runtime,
+					runtime.requestHostCwdChange,
+					{ reason: "move", cwd: runtime.sessionManager.getCwd(), path: resolvedPath },
+					"Move",
+				);
+				if (typeof hostTarget !== "string") return hostTarget;
+				target = hostTarget;
+			}
+			const failure = await relocateHeadlessSession(runtime, target);
 			if (failure) return failure;
 			await runtime.output(`Moved to ${runtime.sessionManager.getCwd()}.`);
 			return commandConsumed();
@@ -749,6 +798,20 @@ export const BUILTIN_LIFECYCLE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> =
 			if (runtime.session.isStreaming) return usage("Cannot create a worktree while streaming.", runtime);
 			const branch = command.args.trim() || defaultSessionWorktreeBranch();
 			const sourceCwd = runtime.sessionManager.getCwd();
+			if (runtime.requestHostCwdChange) {
+				// The host creates the worktree (and decides what carries over); OMP only moves into it.
+				const hostTarget = await askHostForCwd(
+					runtime,
+					runtime.requestHostCwdChange,
+					{ reason: "worktree", cwd: sourceCwd, branch },
+					"Worktree creation",
+				);
+				if (typeof hostTarget !== "string") return hostTarget;
+				const failure = await relocateHeadlessSession(runtime, hostTarget);
+				if (failure) return failure;
+				await runtime.output(`Moved to worktree ${runtime.sessionManager.getCwd()}.`);
+				return commandConsumed();
+			}
 			let worktree: SessionWorktree;
 			try {
 				worktree = await createSessionWorktree(sourceCwd, runtime.settings, branch);

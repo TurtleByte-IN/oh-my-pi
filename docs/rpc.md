@@ -91,15 +91,16 @@ Clients MUST continue reading stdout after closing stdin. Normal EOF and extensi
 4. `RpcExtensionUIRequest` (`{ type: "extension_ui_request", ... }`)
 5. Host tool requests/cancellations (`host_tool_call`, `host_tool_cancel`)
 6. Host URI requests/cancellations (`host_uri_request`, `host_uri_cancel`)
-7. Extension errors (`{ type: "extension_error", extensionPath, event, error }`)
-8. Available-commands updates (`{ type: "available_commands_update", commands }`), emitted at startup and whenever command metadata changes
-9. Prompt completion (`{ type: "prompt_result", id?, agentInvoked, status, error?, sessionSettled }`), unless the response already completed the prompt locally; see [`prompt` payload](#prompt-payload)
-10. Session quiescence (`{ type: "session_settled" }`); see [Yield vs settled](#yield-vs-settled)
-11. Subagent frames (`subagent_lifecycle`, `subagent_progress`, `subagent_event`), gated by `set_subagent_subscription`
-12. Side-question frames (`btw_delta`, `btw_record`); see [Side questions](#side-questions-btw)
-13. Builtin slash-command side channels (`command_output`, `session_info_update`, `config_update`)
-14. Transport overflow notifications (`rpc_frame_error`), when an event cannot fit within the transport limits
-15. Live voice frames (`live_phase`, `live_levels`, `live_transcript`, `live_end`); see [Live Voice Sub-Protocol](#live-voice-sub-protocol)
+7. Host directory-change requests/cancellations (`host_cwd_change_request`, `host_cwd_change_cancel`), only after `set_host_cwd_change`
+8. Extension errors (`{ type: "extension_error", extensionPath, event, error }`)
+9. Available-commands updates (`{ type: "available_commands_update", commands }`), emitted at startup and whenever command metadata changes
+10. Prompt completion (`{ type: "prompt_result", id?, agentInvoked, status, error?, sessionSettled }`), unless the response already completed the prompt locally; see [`prompt` payload](#prompt-payload)
+11. Session quiescence (`{ type: "session_settled" }`); see [Yield vs settled](#yield-vs-settled)
+12. Subagent frames (`subagent_lifecycle`, `subagent_progress`, `subagent_event`), gated by `set_subagent_subscription`
+13. Side-question frames (`btw_delta`, `btw_record`); see [Side questions](#side-questions-btw)
+14. Builtin slash-command side channels (`command_output`, `session_info_update`, `config_update`)
+15. Transport overflow notifications (`rpc_frame_error`), when an event cannot fit within the transport limits
+16. Live voice frames (`live_phase`, `live_levels`, `live_transcript`, `live_end`); see [Live Voice Sub-Protocol](#live-voice-sub-protocol)
 
 Protocol v2 may wrap oversized logical frames from these categories in `rpc_chunk` frames.
 
@@ -109,6 +110,7 @@ Protocol v2 may wrap oversized logical frames from these categories in `rpc_chun
 2. `RpcExtensionUIResponse` (`{ type: "extension_ui_response", ... }`)
 3. Host tool updates/results (`host_tool_update`, `host_tool_result`)
 4. Host URI results (`host_uri_result`)
+5. Host directory-change results (`host_cwd_change_result`)
 
 ## Request/Response Correlation
 
@@ -162,6 +164,7 @@ Important edge behavior from runtime:
 - `{ id?, type: "set_todos", phases: TodoPhase[] }`
 - `{ id?, type: "set_host_tools", tools: RpcHostToolDefinition[] }`
 - `{ id?, type: "set_host_uri_schemes", schemes: RpcHostUriSchemeDefinition[] }`
+- `{ id?, type: "set_host_cwd_change", enabled: boolean }`
 - `{ id?, type: "set_subagent_subscription", level: "off" | "progress" | "events" }`
 - `{ id?, type: "set_event_filter", events: string[] | null, messageUpdates?: "full" | "delta" }`
 - `{ id?, type: "get_subagents" }`
@@ -844,7 +847,11 @@ These tools are registered before the next model call. New non-hidden tools
 are enabled automatically; new hidden tools are registered without being enabled.
 Re-sending `set_host_tools` replaces the previous host-owned set, preserving the
 enabled state of surviving host tools. Names must be unique and cannot conflict
-with an existing non-host tool.
+with an existing non-host tool. A built-in tool disabled with `set_tool_enabled`
+still exists, so a host tool cannot take its name; to replace a built-in such as
+`bash` under the same name, start the server without it (`--tools` listing the
+tools to keep), or register the host tool under its own name and disable the
+built-in with `set_tool_enabled`.
 
 Definitions also accept `hidden?: boolean`,
 `loadMode?: "essential" | "discoverable"`, and `readsSkillUris?: boolean`.
@@ -890,6 +897,50 @@ unregistered; an empty list clears all host schemes.
 Every built-in scheme (`local://`, `skill://`, `artifact://`, `security://`,
 `mcp://`, …) is reserved: RPC hosts cannot register or shadow one, and the
 request fails with `Host URI scheme is reserved by OMP: <scheme>://`.
+
+### `set_host_cwd_change` payload
+
+Hands `/wt` (and its alias `/worktree`) and `/move` to the host, for hosts that
+manage worktrees and project directories themselves:
+
+```json
+{ "id": "req_5", "type": "set_host_cwd_change", "enabled": true }
+```
+
+The response payload is `{ "enabled": true }`. The setting is off at startup; while
+it is off both commands change directory on their own as before. Sending
+`enabled: false` turns it off again and fails any request still waiting for the
+host.
+
+While it is on, each command sends a `host_cwd_change_request` and waits for the
+host's `host_cwd_change_result`:
+
+```json
+{ "type": "host_cwd_change_request", "id": "7364…", "reason": "worktree", "cwd": "/repo", "branch": "feature/x" }
+{ "type": "host_cwd_change_request", "id": "7365…", "reason": "move", "cwd": "/repo", "path": "/other/project" }
+```
+
+- `reason: "worktree"` (`/wt [branch]`): `branch` is the argument, or a generated
+  name when none was given. OMP creates no worktree and does not clean the source
+  checkout; the host creates the worktree and decides which changes carry over.
+- `reason: "move"` (`/move <path>`): `path` is the resolved target, already checked
+  to be an existing directory.
+
+The host answers with the request `id`:
+
+```json
+{ "type": "host_cwd_change_result", "id": "7364…", "accepted": true, "cwd": "/worktrees/repo-feature-x" }
+{ "type": "host_cwd_change_result", "id": "7365…", "accepted": false, "error": "thread is pinned to its project" }
+```
+
+On accept, OMP moves the session (session file, process directory, project-scoped
+settings) into `cwd`, which must be an absolute, existing directory. `cwd` is
+required to accept `worktree`; for `move` it defaults to the request `path`, and a
+different directory redirects the move. On reject the session stays where it is
+and the command reports `<Worktree creation|Move> rejected by host: <error>` as
+`command_output`. If the prompt is aborted while waiting, OMP sends
+`{ "type": "host_cwd_change_cancel", "id", "targetId" }` and ignores a later
+result for `targetId`.
 
 ## Event Stream Schema
 

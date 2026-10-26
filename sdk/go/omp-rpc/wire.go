@@ -6358,7 +6358,127 @@ func (v *HostUriResultContentType) UnmarshalJSON(data []byte) error {
 	return unknownValue("HostUriResultContentType", s)
 }
 
-// Server request for host-owned tools and URI schemes, discriminated by `type`.
+// Which command wants to change the session directory: `/wt` (`worktree`) or `/move` (`move`).
+type HostCwdChangeReason string
+
+const (
+	HostCwdChangeReasonWorktree HostCwdChangeReason = "worktree"
+	HostCwdChangeReasonMove     HostCwdChangeReason = "move"
+)
+
+func (v *HostCwdChangeReason) UnmarshalJSON(data []byte) error {
+	s, err := decodeString(data, "HostCwdChangeReason")
+	if err != nil {
+		return err
+	}
+	switch value := HostCwdChangeReason(s); value {
+	case HostCwdChangeReasonWorktree, HostCwdChangeReasonMove:
+		*v = value
+		return nil
+	}
+	return unknownValue("HostCwdChangeReason", s)
+}
+
+// Asks the host to own a session directory change; sent only after `set_host_cwd_change` enabled it. For `worktree` the host creates the worktree; for `move` it approves the target.
+type HostCwdChangeRequest struct {
+	ID     string              `json:"id"`
+	Reason HostCwdChangeReason `json:"reason"`
+	// The session's current working directory.
+	Cwd string `json:"cwd"`
+	// `move` only: the resolved, existing target directory.
+	Path *string `json:"path,omitempty"`
+	// `worktree` only: the branch the user asked for, or a generated default.
+	Branch *string `json:"branch,omitempty"`
+}
+
+func (v *HostCwdChangeRequest) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "HostCwdChangeRequest", v.decodeFrom)
+}
+
+func (v *HostCwdChangeRequest) decodeFrom(raw map[string]json.RawMessage) error {
+	var out HostCwdChangeRequest
+	d := fieldDecoder{raw: raw, owner: "HostCwdChangeRequest"}
+	d.constant("type", "host_cwd_change_request")
+	d.required("id", &out.ID)
+	d.required("reason", &out.Reason)
+	d.required("cwd", &out.Cwd)
+	d.optional("path", &out.Path)
+	d.optional("branch", &out.Branch)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+func (v HostCwdChangeRequest) MarshalJSON() ([]byte, error) {
+	type plain HostCwdChangeRequest
+	return encodeObject(plain(v), `"type":"host_cwd_change_request"`, nil)
+}
+
+// The command waiting on `targetId` was aborted; the server ignores any later result for it.
+type HostCwdChangeCancelRequest struct {
+	ID       string `json:"id"`
+	TargetID string `json:"targetId"`
+}
+
+func (v *HostCwdChangeCancelRequest) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "HostCwdChangeCancelRequest", v.decodeFrom)
+}
+
+func (v *HostCwdChangeCancelRequest) decodeFrom(raw map[string]json.RawMessage) error {
+	var out HostCwdChangeCancelRequest
+	d := fieldDecoder{raw: raw, owner: "HostCwdChangeCancelRequest"}
+	d.constant("type", "host_cwd_change_cancel")
+	d.required("id", &out.ID)
+	d.required("targetId", &out.TargetID)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+func (v HostCwdChangeCancelRequest) MarshalJSON() ([]byte, error) {
+	type plain HostCwdChangeCancelRequest
+	return encodeObject(plain(v), `"type":"host_cwd_change_cancel"`, nil)
+}
+
+// Host reply to a `host_cwd_change_request`: on accept the server moves the session into `cwd`; on reject it stays put.
+type HostCwdChangeResult struct {
+	ID       string `json:"id"`
+	Accepted bool   `json:"accepted"`
+	// Absolute existing directory to move the session into. Required to accept `worktree`; defaults to the request `path` for `move`.
+	Cwd *string `json:"cwd,omitempty"`
+	// Reason shown to the user when `accepted` is false.
+	Error *string `json:"error,omitempty"`
+}
+
+func (v *HostCwdChangeResult) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "HostCwdChangeResult", v.decodeFrom)
+}
+
+func (v *HostCwdChangeResult) decodeFrom(raw map[string]json.RawMessage) error {
+	var out HostCwdChangeResult
+	d := fieldDecoder{raw: raw, owner: "HostCwdChangeResult"}
+	d.constant("type", "host_cwd_change_result")
+	d.required("id", &out.ID)
+	d.required("accepted", &out.Accepted)
+	d.optional("cwd", &out.Cwd)
+	d.optional("error", &out.Error)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+func (v HostCwdChangeResult) MarshalJSON() ([]byte, error) {
+	type plain HostCwdChangeResult
+	return encodeObject(plain(v), `"type":"host_cwd_change_result"`, nil)
+}
+
+// Server request for host-owned tools, URI schemes, and directory changes, discriminated by `type`.
 type RpcHostRequest struct {
 	// Value holds one variant, chosen by "type" on decode.
 	Value RpcHostRequestVariant
@@ -6369,10 +6489,12 @@ type RpcHostRequestVariant interface {
 	isRpcHostRequest()
 }
 
-func (HostToolCallRequest) isRpcHostRequest()   {}
-func (HostToolCancelRequest) isRpcHostRequest() {}
-func (HostUriRequest) isRpcHostRequest()        {}
-func (HostUriCancelRequest) isRpcHostRequest()  {}
+func (HostToolCallRequest) isRpcHostRequest()        {}
+func (HostToolCancelRequest) isRpcHostRequest()      {}
+func (HostUriRequest) isRpcHostRequest()             {}
+func (HostUriCancelRequest) isRpcHostRequest()       {}
+func (HostCwdChangeRequest) isRpcHostRequest()       {}
+func (HostCwdChangeCancelRequest) isRpcHostRequest() {}
 
 func (v RpcHostRequest) MarshalJSON() ([]byte, error) {
 	return encodeVariant("RpcHostRequest", v.Value)
@@ -6397,6 +6519,10 @@ func (v *RpcHostRequest) decodeFrom(raw map[string]json.RawMessage) error {
 		value, err = decodeVariant[HostUriRequest](raw)
 	case "host_uri_cancel":
 		value, err = decodeVariant[HostUriCancelRequest](raw)
+	case "host_cwd_change_request":
+		value, err = decodeVariant[HostCwdChangeRequest](raw)
+	case "host_cwd_change_cancel":
+		value, err = decodeVariant[HostCwdChangeCancelRequest](raw)
 	default:
 		return unknownValue("RpcHostRequest.type", tag)
 	}
@@ -6418,13 +6544,14 @@ type RpcInboundVariant interface {
 	isRpcInbound()
 }
 
-func (ValueUiResponse) isRpcInbound()   {}
-func (ConfirmUiResponse) isRpcInbound() {}
-func (CancelUiResponse) isRpcInbound()  {}
-func (AnswersUiResponse) isRpcInbound() {}
-func (HostToolUpdate) isRpcInbound()    {}
-func (HostToolResult) isRpcInbound()    {}
-func (HostUriResult) isRpcInbound()     {}
+func (ValueUiResponse) isRpcInbound()     {}
+func (ConfirmUiResponse) isRpcInbound()   {}
+func (CancelUiResponse) isRpcInbound()    {}
+func (AnswersUiResponse) isRpcInbound()   {}
+func (HostToolUpdate) isRpcInbound()      {}
+func (HostToolResult) isRpcInbound()      {}
+func (HostUriResult) isRpcInbound()       {}
+func (HostCwdChangeResult) isRpcInbound() {}
 
 func (v RpcInbound) MarshalJSON() ([]byte, error) {
 	return encodeVariant("RpcInbound", v.Value)
@@ -6753,6 +6880,8 @@ func (HostToolCallRequest) isRpcServerFrame()          {}
 func (HostToolCancelRequest) isRpcServerFrame()        {}
 func (HostUriRequest) isRpcServerFrame()               {}
 func (HostUriCancelRequest) isRpcServerFrame()         {}
+func (HostCwdChangeRequest) isRpcServerFrame()         {}
+func (HostCwdChangeCancelRequest) isRpcServerFrame()   {}
 func (ReadyEvent) isRpcServerFrame()                   {}
 func (PromptResultEvent) isRpcServerFrame()            {}
 func (SessionSettledEvent) isRpcServerFrame()          {}
@@ -6829,6 +6958,10 @@ func (v *RpcServerFrame) UnmarshalJSON(data []byte) error {
 		value, err = decodeVariant[HostUriRequest](raw)
 	case "host_uri_cancel":
 		value, err = decodeVariant[HostUriCancelRequest](raw)
+	case "host_cwd_change_request":
+		value, err = decodeVariant[HostCwdChangeRequest](raw)
+	case "host_cwd_change_cancel":
+		value, err = decodeVariant[HostCwdChangeCancelRequest](raw)
 	case "ready":
 		value, err = decodeVariant[ReadyEvent](raw)
 	case "prompt_result":
@@ -7159,6 +7292,25 @@ func (v *SetHostUriSchemesResult) decodeFrom(raw map[string]json.RawMessage) err
 	var out SetHostUriSchemesResult
 	d := fieldDecoder{raw: raw, owner: "SetHostUriSchemesResult"}
 	d.required("schemes", &out.Schemes)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+type SetHostCwdChangeResult struct {
+	Enabled bool `json:"enabled"`
+}
+
+func (v *SetHostCwdChangeResult) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "SetHostCwdChangeResult", v.decodeFrom)
+}
+
+func (v *SetHostCwdChangeResult) decodeFrom(raw map[string]json.RawMessage) error {
+	var out SetHostCwdChangeResult
+	d := fieldDecoder{raw: raw, owner: "SetHostCwdChangeResult"}
+	d.required("enabled", &out.Enabled)
 	if d.err != nil {
 		return d.err
 	}
@@ -7880,6 +8032,18 @@ func (c Commands) SetHostURISchemes(ctx context.Context, p SetHostURISchemesComm
 	var out SetHostUriSchemesResult
 	err := c.call(ctx, "set_host_uri_schemes", p, 0, &out)
 	return out.Schemes, err
+}
+
+// SetHostCwdChangeCommand holds the parameters of "set_host_cwd_change".
+type SetHostCwdChangeCommand struct {
+	Enabled bool `json:"enabled"`
+}
+
+// SetHostCwdChange sends "set_host_cwd_change": Route `/wt` and `/move` through the host: when enabled they send `host_cwd_change_request` and follow the host's reply instead of changing directory on their own.
+func (c Commands) SetHostCwdChange(ctx context.Context, p SetHostCwdChangeCommand) (bool, error) {
+	var out SetHostCwdChangeResult
+	err := c.call(ctx, "set_host_cwd_change", p, 0, &out)
+	return out.Enabled, err
 }
 
 // SetSubagentSubscriptionCommand holds the parameters of "set_subagent_subscription".

@@ -140,7 +140,22 @@ export interface SlashCommandRuntime {
 	 * (RPC) ignore the flag and always push.
 	 */
 	notifyConfigChanged?: (options?: { handledBySessionEvent?: boolean }) => Promise<void> | void;
+	/**
+	 * Hand a session directory change to the host. Present only when an RPC host
+	 * opted in with `set_host_cwd_change`: `/wt` then lets the host create the
+	 * worktree and `/move` waits for its approval, and both move the session
+	 * into the directory the host returns. Absent everywhere else.
+	 */
+	requestHostCwdChange?: (change: HostCwdChange, signal?: AbortSignal) => Promise<HostCwdChangeVerdict>;
 }
+
+/** A session directory change offered to the host; `cwd` is the session's current directory. */
+export type HostCwdChange =
+	| { reason: "worktree"; cwd: string; branch: string }
+	| { reason: "move"; cwd: string; path: string };
+
+/** Host verdict on a {@link HostCwdChange}: accepted with the directory to move into, or refused. */
+export type HostCwdChangeVerdict = { accepted: true; cwd: string } | { accepted: false; error?: string };
 
 /**
  * Runtime visible to TUI-only handlers (`handleTui`). Carries the interactive
