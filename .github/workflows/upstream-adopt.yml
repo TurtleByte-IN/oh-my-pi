@@ -3,11 +3,13 @@ name: Upstream tag adoption
 # Considers each new can1357/oh-my-pi release tag for adoption (PRD §4, §10).
 # A fork cannot receive upstream's events, so a schedule polls upstream's tags.
 # The newest stable `vX.Y.Z` tag not yet in `main` is merged into `main` on the
-# runner and the RPC contract suite runs on the result. Only when it is green is
-# `chore/upstream-<tag>` pushed and an adoption PR opened; otherwise an issue
-# records why the tag was skipped. A PR opened with GITHUB_TOKEN starts no
-# `pull_request` workflows, so this workflow dispatches `ci.yml` on the branch,
-# waits for it and posts its result as the required `CI gate` status. See
+# runner and the RPC contract suite runs on the result, in a job with no write
+# permission and no secrets because it runs the tag's code. Only when it is
+# green does a separate job, which runs no repository code, push
+# `chore/upstream-<tag>` and open an adoption PR; otherwise an issue records why
+# the tag was skipped. A PR opened with GITHUB_TOKEN starts no `pull_request`
+# workflows, so this workflow dispatches `ci.yml` on the branch, waits for it
+# and posts its result as the required `CI gate` status. See
 # docs/fork-release.md.
 
 on:
@@ -33,37 +35,36 @@ concurrency:
    cancel-in-progress: false
 
 jobs:
-   adopt:
-      name: Adopt upstream tag
+   # Reads upstream's tags and this repository's PRs and issues; runs no code
+   # from the upstream tag.
+   pick:
+      name: Pick the upstream tag
       if: github.repository != 'can1357/oh-my-pi'
       runs-on: ubuntu-22.04
-      # Includes waiting for the dispatched ci.yml run, which builds the
-      # native addons from source without a cache (well over an hour).
-      timeout-minutes: 330
+      timeout-minutes: 10
       permissions:
-         contents: write # push the adoption branch
-         pull-requests: write # open the adoption PR, close superseded ones
-         issues: write # skip issues, the label
-         actions: write # dispatch ci.yml on the adoption branch
-         statuses: write # report the dispatched CI result as `CI gate`
+         contents: read
+         pull-requests: read
+         issues: read
       env:
          UPSTREAM_REPO: can1357/oh-my-pi
          TAG_INPUT: ${{ inputs.tag }}
          # Scheduled runs have no inputs, so they are never dry runs.
          DRY_RUN: ${{ inputs.dry_run == true }}
-         # Optional token (contents, pull requests, issues, actions and
-         # workflows write). Without it the run uses GITHUB_TOKEN, which cannot
-         # push an upstream change to .github/workflows and whose PRs start no CI.
-         USE_PAT: ${{ secrets.UPSTREAM_MERGE_TOKEN != '' }}
-         GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
+         GH_TOKEN: ${{ github.token }}
          LABEL: upstream-merge
-         CI_CONTEXT: CI gate
+      outputs:
+         candidate: ${{ steps.pick.outputs.candidate }}
+         tag: ${{ steps.pick.outputs.tag }}
+         sha: ${{ steps.pick.outputs.sha }}
+         branch: ${{ steps.pick.outputs.branch }}
+         main-sha: ${{ steps.pick.outputs.main-sha }}
       steps:
          - uses: actions/checkout@v4
            with:
               ref: main
               fetch-depth: 0
-              token: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
+              persist-credentials: false
 
          - name: Pick the upstream tag
            id: pick
@@ -97,6 +98,7 @@ jobs:
                 echo "tag=$tag"
                 echo "sha=$sha"
                 echo "branch=$branch"
+                echo "main-sha=$(git rev-parse HEAD)"
               } >> "$GITHUB_OUTPUT"
               if git merge-base --is-ancestor "$sha" HEAD; then
                 # A dry run that names an adopted tag still runs every step (the
@@ -123,40 +125,81 @@ jobs:
               fi
               echo "candidate=true" >> "$GITHUB_OUTPUT"
 
+   # Runs code from the upstream tag (dependency install scripts, the native
+   # addon installer, the contract tests), so it gets read-only contents, no
+   # secret, no persisted credentials and no cache (one would be written from
+   # this run's ref, `main` on a schedule). Its only output is whether it
+   # passed; `report` redoes the merge itself.
+   evaluate:
+      name: RPC contract suite on the merge
+      needs: pick
+      if: needs.pick.outputs.candidate == 'true'
+      runs-on: ubuntu-22.04
+      timeout-minutes: 30
+      permissions:
+         contents: read
+      env:
+         UPSTREAM_REPO: can1357/oh-my-pi
+         TAG: ${{ needs.pick.outputs.tag }}
+         SHA: ${{ needs.pick.outputs.sha }}
+         MAIN_SHA: ${{ needs.pick.outputs.main-sha }}
+      steps:
+         - uses: actions/checkout@v4
+           with:
+              ref: ${{ needs.pick.outputs.main-sha }}
+              fetch-depth: 0
+              persist-credentials: false
+
          - name: Merge the tag into main
            id: merge
-           if: steps.pick.outputs.candidate == 'true'
            shell: bash
-           env:
-              TAG: ${{ steps.pick.outputs.tag }}
-              SHA: ${{ steps.pick.outputs.sha }}
-              BRANCH: ${{ steps.pick.outputs.branch }}
            run: |
               set -euo pipefail
               git config user.name "github-actions[bot]"
               git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git switch -c "$BRANCH"
+              git fetch --no-tags "https://github.com/$UPSTREAM_REPO.git" "refs/tags/$TAG"
+              if [[ "$(git rev-parse "FETCH_HEAD^{commit}")" != "$SHA" ]]; then
+                echo "::error::upstream $TAG no longer points at $SHA"
+                exit 1
+              fi
+              # The contract's append-only check compares against origin/main;
+              # pin it to the main commit `pick` saw.
+              git update-ref refs/remotes/origin/main "$MAIN_SHA"
               if git merge --no-ff --no-edit -m "Merge upstream $UPSTREAM_REPO $TAG into main" "$SHA"; then
                 echo "clean=true" >> "$GITHUB_OUTPUT"
               else
-                git diff --name-only --diff-filter=U > "$RUNNER_TEMP/conflicts.txt"
                 git merge --abort
-                echo "clean=false" >> "$GITHUB_OUTPUT"
+                echo "Merge conflicts; the report job opens the issue."
               fi
 
          # The contract suite as ci.yml's `RPC contract` job runs it, against
          # the linux-x64 addons upstream published to npm for this tag (the
          # fork does not change native code). The full suite, with addons built
-         # from source, runs on the adoption PR.
+         # from source, runs on the adoption PR. Bun is installed by the pin
+         # rule of .github/actions/bun-install, without that action (it is
+         # code from the merged tree) and without its shared cache.
+         - name: Install bun
+           if: steps.merge.outputs.clean == 'true'
+           shell: bash
+           run: |
+              set -euo pipefail
+              want="$(sed -n 's/.*"packageManager": *"bun@\([^"]*\)".*/\1/p' package.json)"
+              case "$want" in
+                '') echo "::error::could not read the bun pin from package.json"; exit 1 ;;
+                '>='*) release="" ;;
+                *) release="bun-v$want" ;;
+              esac
+              curl -fsSL https://bun.sh/install | bash -s -- ${release:+"$release"}
+              echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
          - name: Install dependencies
            if: steps.merge.outputs.clean == 'true'
-           uses: ./.github/actions/bun-install
+           shell: bash
+           run: bun install --frozen-lockfile
 
          - name: Install the tag's native addons (npm)
            if: steps.merge.outputs.clean == 'true'
            shell: bash
-           env:
-              TAG: ${{ steps.pick.outputs.tag }}
            run: |
               set -euo pipefail
               src="$RUNNER_TEMP/natives"
@@ -170,27 +213,82 @@ jobs:
               bun scripts/bazel-natives.ts linux-x64-baseline linux-x64-modern --source "$src"
 
          - name: RPC contract tests
-           id: contract
            if: steps.merge.outputs.clean == 'true'
-           continue-on-error: true
            shell: bash
            run: OMP_RPC_CONTRACT_BASE_REF=origin/main bun run ci:test:rpc-contract
 
+   # Trusted: runs only this file's script and git, never code from the
+   # upstream tag, and takes nothing from `evaluate` but its result. It redoes
+   # the merge (same commits, same tree), then pushes, opens the PR or issue,
+   # and reports CI.
+   report:
+      name: Open the adoption PR or a skip issue
+      needs: [pick, evaluate]
+      if: ${{ !cancelled() && needs.pick.outputs.candidate == 'true' }}
+      runs-on: ubuntu-22.04
+      # Includes waiting for the dispatched ci.yml run, which builds the
+      # native addons from source without a cache (well over an hour).
+      timeout-minutes: 330
+      permissions:
+         contents: write # push the adoption branch
+         pull-requests: write # open the adoption PR, close superseded ones
+         issues: write # skip issues, the label
+         actions: write # dispatch ci.yml on the adoption branch
+         statuses: write # report the dispatched CI result as `CI gate`
+      env:
+         UPSTREAM_REPO: can1357/oh-my-pi
+         # Scheduled runs have no inputs, so they are never dry runs.
+         DRY_RUN: ${{ inputs.dry_run == true }}
+         # Optional token (contents, pull requests, issues, actions and
+         # workflows write). Without it the run uses GITHUB_TOKEN, which cannot
+         # push an upstream change to .github/workflows and whose PRs start no CI.
+         USE_PAT: ${{ secrets.UPSTREAM_MERGE_TOKEN != '' }}
+         GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
+         LABEL: upstream-merge
+         CI_CONTEXT: CI gate
+         TAG: ${{ needs.pick.outputs.tag }}
+         SHA: ${{ needs.pick.outputs.sha }}
+         BRANCH: ${{ needs.pick.outputs.branch }}
+         MAIN_SHA: ${{ needs.pick.outputs.main-sha }}
+         CONTRACT: ${{ needs.evaluate.result }}
+      steps:
+         - uses: actions/checkout@v4
+           with:
+              ref: ${{ needs.pick.outputs.main-sha }}
+              fetch-depth: 0
+              token: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
+
+         - name: Merge the tag into main
+           id: merge
+           shell: bash
+           run: |
+              set -euo pipefail
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git fetch --no-tags "https://github.com/$UPSTREAM_REPO.git" "refs/tags/$TAG"
+              if [[ "$(git rev-parse "FETCH_HEAD^{commit}")" != "$SHA" ]]; then
+                echo "::error::upstream $TAG no longer points at $SHA"
+                exit 1
+              fi
+              git switch -c "$BRANCH"
+              if git merge --no-ff --no-edit -m "Merge upstream $UPSTREAM_REPO $TAG into main" "$SHA"; then
+                echo "clean=true" >> "$GITHUB_OUTPUT"
+              else
+                git diff --name-only --diff-filter=U > "$RUNNER_TEMP/conflicts.txt"
+                git merge --abort
+                echo "clean=false" >> "$GITHUB_OUTPUT"
+              fi
+
          - name: Open the adoption PR or a skip issue
            id: open
-           if: steps.pick.outputs.candidate == 'true' && !cancelled()
            shell: bash
            env:
-              TAG: ${{ steps.pick.outputs.tag }}
-              SHA: ${{ steps.pick.outputs.sha }}
-              BRANCH: ${{ steps.pick.outputs.branch }}
               CLEAN: ${{ steps.merge.outputs.clean }}
-              CONTRACT: ${{ steps.contract.outcome }}
            run: |
               set -euo pipefail
               summary() { printf '%s\n' "$@" | tee -a "$GITHUB_STEP_SUMMARY"; }
               run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-              main_sha="$(git rev-parse origin/main)"
+              main_sha="$MAIN_SHA"
               count="$(git rev-list --count "$main_sha..$SHA")"
               release="https://github.com/$UPSTREAM_REPO/releases/tag/$TAG"
               pr_title="chore: adopt upstream $TAG"
@@ -200,7 +298,8 @@ jobs:
                   --description "Automated upstream merge (docs/fork-release.md)" --force
               fi
 
-              # Skip: a conflict or a red contract suite.
+              # Skip: a conflict, or a contract suite that failed or could not
+              # run (the evaluate job failed).
               if [[ "$CLEAN" != true || "$CONTRACT" != success ]]; then
                 body="$RUNNER_TEMP/issue.md"
                 if [[ "$CLEAN" != true ]]; then
@@ -220,16 +319,9 @@ jobs:
                     echo '```'
                   } > "$body"
                 else
-                  # `skipped`: installing dependencies or the tag's addons failed.
-                  if [[ "$CONTRACT" == failure ]]; then
-                    title="Upstream $TAG not adopted: RPC contract suite failed"
-                    why="the RPC contract suite failed on the result"
-                  else
-                    title="Upstream $TAG not adopted: RPC contract suite did not run"
-                    why="the RPC contract suite could not run (dependency or native addon install failed; see the run)"
-                  fi
+                  title="Upstream $TAG not adopted: RPC contract suite failed"
                   {
-                    echo "Upstream [\`$TAG\`]($release) ($count commits) merges cleanly into \`main\` (\`${main_sha:0:12}\`), but $why. Per PRD §4 the tag is skipped; a later tag is considered when it appears."
+                    echo "Upstream [\`$TAG\`]($release) ($count commits) merges cleanly into \`main\` (\`${main_sha:0:12}\`), but the RPC contract suite failed or could not run on the result (job \`evaluate\`: \`$CONTRACT\`; see the run). Per PRD §4 the tag is skipped; a later tag is considered when it appears."
                     echo
                     echo "To retry this tag after fixing the cause: \`gh workflow run upstream-adopt.yml -f tag=$TAG -f dry_run=false\`."
                   } > "$body"
@@ -326,11 +418,13 @@ jobs:
          # its result as a `CI gate` commit status from GITHUB_TOKEN (the GitHub
          # Actions app, the source the required check expects).
          - name: Report the dispatched CI result as CI gate
-           if: steps.open.outputs.ci_sha != ''
+           # always(): once CI is dispatched and `pending` posted, a later
+           # failure in the step above must not leave the status pending.
+           if: always() && steps.open.outputs.ci_sha != ''
            shell: bash
            env:
               GH_TOKEN: ${{ github.token }}
-              CI_BRANCH: ${{ steps.pick.outputs.branch }}
+              CI_BRANCH: ${{ needs.pick.outputs.branch }}
               CI_SHA: ${{ steps.open.outputs.ci_sha }}
            run: |
               set -euo pipefail

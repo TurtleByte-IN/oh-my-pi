@@ -154,13 +154,26 @@ not change native code. Then one of these happens:
 - The merge conflicts: the run opens issue `Upstream <tag> not adopted: merge conflicts`,
   labelled `upstream-merge`. The issue lists the conflicting files and the commands to adopt the
   tag by hand. The contract suite does not run, and nothing is pushed.
-- The contract suite fails, or cannot run: the run opens issue
-  `Upstream <tag> not adopted: RPC contract suite failed` (or `… did not run`). The tag is
-  skipped and nothing is pushed. A later tag is considered when upstream publishes it.
+- The contract suite fails, or cannot run (for example the addon download fails): the run opens
+  issue `Upstream <tag> not adopted: RPC contract suite failed`. The tag is skipped and nothing is
+  pushed. A later tag is considered when upstream publishes it.
 - The contract suite passes: the run pushes `chore/upstream-<tag>`, opens adoption PR
   `chore: adopt upstream <tag>` labelled `upstream-merge`, and dispatches `ci.yml` on the
   branch. Older open `upstream-merge` PRs and issues are closed as superseded; their branches are
   kept.
+
+The workflow has three jobs, split by trust:
+
+- `pick` reads upstream's tags and this repository's PRs and issues, with read-only permissions.
+  It records the tag commit and the `main` commit it saw, so the later jobs work on the same two.
+- `evaluate` merges and runs the contract suite. That runs code from the upstream tag: install
+  scripts, the native addon installer and the tests. So it gets read-only contents, no secret, no
+  persisted git credentials and no Actions cache. It installs bun by the pin in `package.json`
+  rather than through `.github/actions/bun-install`, which would be code from the merged tree and
+  would save a cache that `main` restores. Its only result is whether it passed.
+- `report` holds the write permissions and the optional token. It runs only the workflow's own
+  script and git, never code from the tag. It redoes the merge itself, which gives the same tree,
+  and takes nothing from `evaluate` but its pass or fail.
 
 To evaluate a skipped tag again, dispatch the workflow with that tag. A dispatch that names a
 tag ignores earlier decisions:
