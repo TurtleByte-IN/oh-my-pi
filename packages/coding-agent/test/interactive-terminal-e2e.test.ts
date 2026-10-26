@@ -22,6 +22,12 @@ function dump(label: string, rows: readonly string[]): void {
 	for (const [i, row] of rows.entries()) console.log(String(i).padStart(3), JSON.stringify(row));
 }
 
+// "replaces retired history after /shake …" flakes on the TurtleByte-IN fork's GitHub-hosted CI
+// (oh-my-pi#13 run 40273298157). Tolerated by name per the Ompanel program BASELINE.md "Fork CI"
+// section, so it is skipped on GitHub-hosted runners (RUNNER_ENVIRONMENT; the CI test runner
+// clears GITHUB_ACTIONS).
+const itLocalOnly = it.skipIf(process.env.RUNNER_ENVIRONMENT === "github-hosted");
+
 describe("libkitty end-to-end", () => {
 	let tempDir: TempDir;
 	let authStorage: AuthStorage;
@@ -337,7 +343,7 @@ describe("libkitty end-to-end", () => {
 		expect(plainRows(term.getScrollBuffer()).some(row => row.includes(TOOL_MARKER))).toBe(false);
 		expect(plainRows(term.getViewport()).some(row => row.includes("LIVE_EDITOR_DRAFT"))).toBe(true);
 	});
-	it("replaces retired history after /shake without obscuring a long reply beside the Todo HUD", async () => {
+	itLocalOnly("replaces retired history after /shake without obscuring a long reply beside the Todo HUD", async () => {
 		const usage: Usage = {
 			input: 0,
 			output: 0,
