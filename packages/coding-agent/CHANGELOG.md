@@ -5,6 +5,7 @@
 ### Added
 
 - RPC `ready` frames and `negotiate_protocol` responses report `contractVersion`, the semver of the RPC wire contract (now `1.0.0`); the generated `packages/rpc-contract` package carries the matching TypeScript types and JSON Schema for hosts to pin ([#2](https://github.com/TurtleByte-IN/oh-my-pi/issues/2))
+- `--brand <name>` shows `<name>` instead of the `omp` wordmark in the interactive welcome banner; the binary name and everything else are unchanged
 - Anthropic web search and Files API uploads follow `PI_ANTHROPIC_API_VERSION=2026-10-21`; web search omits `temperature` under that version ([#16706](https://github.com/can1357/oh-my-pi/pull/16706) by [@H4vC](https://github.com/H4vC))
 - llama.cpp auto-discovery now also finds local servers on llama-server's new default port 9931 when nothing answers on 8080 ([#16675](https://github.com/can1357/oh-my-pi/pull/16675) by [@bartbroere](https://github.com/bartbroere))
 

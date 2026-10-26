@@ -175,6 +175,7 @@ See [providers](./providers.md) and [models](./models.md) for model resolution.
 | `--mode <mode>` | Output/transport mode: `text` (default), `json`, `rpc`, `acp`, or `rpc-ui`. See [output modes](#output-modes---mode). |
 | `--print`, `-p` | Process prompts non-interactively and exit. |
 | `--no-ui` | With `rpc`/`rpc-ui`, make extensions headless without disabling rpc-ui tool UI. |
+| `--brand <name>` | Show `<name>` instead of the `omp` wordmark in the interactive welcome banner (e.g. `omp --brand Ompanel`). The binary, config directories, and RPC frames are unchanged; `rpc`/`rpc-ui` `ready` frames carry no product name. |
 
 #### Information
 
