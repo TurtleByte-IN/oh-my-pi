@@ -4,4 +4,4 @@
 export const RPC_CONTRACT_VERSION = "1.9.0";
 
 /** `sha256:<hex>` shape hash of `rpc-wire.schema.json` (documentation text and ordering excluded). */
-export const RPC_CONTRACT_SCHEMA_HASH = "sha256:3916f0ef13e040335a9eb1494ddc274b7d4487ae545ce638200ad35840f9a34a";
+export const RPC_CONTRACT_SCHEMA_HASH = "sha256:19da27d7f77db61dc4d5985b7cdd033b591e9dc54d19c37bdf04bfb96e2c039c";

@@ -1990,3 +1990,8 @@ overlay (the project layer cannot set it). The session then ignores the project'
 `yolo` a write-tier call whose target is agent configuration (`.omp/`, `.pi/`, `.mcp.json`,
 `mcp.json`, `.claude/settings*.json`, a loaded `--config` file) always prompts, even when
 the mode, a user `allow` or a remembered grant would approve it.
+
+`get_state` also reports `browserEnabled` and `computerEnabled`: whether the browser and
+computer-use eval preludes are on, from `browser.enabled` and `computer.enabled` as the
+session resolved them, runtime overrides (`/computer on`) included. A host that turns them off
+in its overlay reads these back to confirm the session saw the change before it sends a prompt.

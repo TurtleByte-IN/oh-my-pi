@@ -2534,7 +2534,11 @@ type SessionState struct {
 	SessionFile   *string        `json:"sessionFile,omitempty"`
 	SessionName   *string        `json:"sessionName,omitempty"`
 	// `workspace.trusted` as the session resolved it: `false` ignores the project's approval policies, MCP servers, extensions and hooks. Contract `1.9.0`.
-	WorkspaceTrusted      *bool `json:"workspaceTrusted,omitempty"`
+	WorkspaceTrusted *bool `json:"workspaceTrusted,omitempty"`
+	// Whether the browser eval prelude is on: `browser.enabled` as the session resolved it, runtime overrides included. Contract `1.9.0`.
+	BrowserEnabled *bool `json:"browserEnabled,omitempty"`
+	// Whether the computer-use eval prelude is on: `computer.enabled` as the session resolved it, runtime overrides (`/computer`) included. Contract `1.9.0`.
+	ComputerEnabled       *bool `json:"computerEnabled,omitempty"`
 	AutoCompactionEnabled bool  `json:"autoCompactionEnabled"`
 	FastModeEnabled       bool  `json:"fastModeEnabled"`
 	FastModeActive        bool  `json:"fastModeActive"`
@@ -2583,6 +2587,8 @@ func (v *SessionState) decodeFrom(raw map[string]json.RawMessage) error {
 	d.optional("sessionFile", &out.SessionFile)
 	d.optional("sessionName", &out.SessionName)
 	d.optional("workspaceTrusted", &out.WorkspaceTrusted)
+	d.optional("browserEnabled", &out.BrowserEnabled)
+	d.optional("computerEnabled", &out.ComputerEnabled)
 	d.defaulted("autoCompactionEnabled", &out.AutoCompactionEnabled, `false`)
 	d.defaulted("fastModeEnabled", &out.FastModeEnabled, `false`)
 	d.defaulted("fastModeActive", &out.FastModeActive, `false`)

@@ -60,9 +60,10 @@ import { executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins
 import { buildAvailableSlashCommands } from "../../slash-commands/available-commands";
 import { resolvePrewalkTarget } from "../../slash-commands/builtin-modes";
 import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpers/logout";
+import { cfgBrowserEnabled } from "../../tools/browser/settings";
 import { defaultLoadModeForToolName } from "../../tools/essential-tools";
 import { isApprovalMode } from "../../tools/approval";
-import { cfgToolsApprovalMode, cfgWorkspaceTrusted } from "../../tools/settings";
+import { cfgComputerEnabled, cfgToolsApprovalMode, cfgWorkspaceTrusted } from "../../tools/settings";
 import { USER_TODO_EDIT_CUSTOM_TYPE } from "../../tools/todo";
 import type { EventBus } from "../../utils/event-bus";
 import { selectRpcEntries } from "./rpc-compat";
@@ -2186,6 +2187,8 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 					sessionId: session.sessionId,
 					sessionName: session.sessionName,
 					workspaceTrusted: cfgWorkspaceTrusted.get(session.settings) !== false,
+					browserEnabled: cfgBrowserEnabled.get(session.settings) === true,
+					computerEnabled: cfgComputerEnabled.get(session.settings) === true,
 					autoCompactionEnabled: session.autoCompactionEnabled,
 					queuedMessageCount: session.queuedMessageCount,
 					hasPendingAsyncWork: session.hasPendingAsyncWork(),
