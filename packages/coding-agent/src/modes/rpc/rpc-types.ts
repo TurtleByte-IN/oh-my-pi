@@ -29,6 +29,7 @@ import type { LivePhase } from "@oh-my-pi/pi-tui/apps/live-visualizer";
 import type { RpcMessagesPage } from "./rpc-messages";
 import type { GoalModeState } from "../../goals/state";
 import type { RpcGoalOp, RpcGoalResult } from "./rpc-goal";
+import type { RpcVibeModeResult } from "./rpc-vibe";
 import type { BtwHistoryRecord } from "../../session/btw-history";
 import type { CollabAccess } from "../../collab/registry";
 import type { CollabParticipant } from "../../collab/protocol";
@@ -74,6 +75,7 @@ export type RpcCommand =
 			objective?: string;
 			token_budget?: number;
 	  }
+	| { id?: string; type: "set_vibe_mode"; enabled: boolean }
 	| { id?: string; type: "set_ask_dialog"; enabled: boolean }
 	| { id?: string; type: "set_approval_mode"; mode: ApprovalMode }
 	| { id?: string; type: "set_advisor"; enabled: boolean }
@@ -219,6 +221,8 @@ export interface RpcSessionState {
 	contextUsage?: ContextUsage;
 	/** Current goal-mode state; `null` when the session has no goal. */
 	goal: GoalModeState | null;
+	/** Vibe mode is on: the session directs worker sessions through the `vibe_*` tools. */
+	vibeModeEnabled: boolean;
 }
 
 export interface RpcAvailableSlashCommand {
@@ -460,6 +464,7 @@ export type RpcResponse =
 	  }
 	| { id?: string; type: "response"; command: "set_slow_mode"; success: true; data: { enabled: boolean } }
 	| { id?: string; type: "response"; command: "goal"; success: true; data: RpcGoalResult }
+	| { id?: string; type: "response"; command: "set_vibe_mode"; success: true; data: RpcVibeModeResult }
 	| { id?: string; type: "response"; command: "set_ask_dialog"; success: true; data: { enabled: boolean } }
 	| { id?: string; type: "response"; command: "set_approval_mode"; success: true; data: { mode: ApprovalMode } }
 	| {

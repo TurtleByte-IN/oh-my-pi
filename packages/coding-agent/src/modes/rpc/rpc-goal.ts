@@ -39,6 +39,7 @@ export type RpcGoalSession = Pick<
 	| "getGoalModeState"
 	| "setGoalModeState"
 	| "getPlanModeState"
+	| "getVibeModeState"
 	| "getEnabledToolNames"
 	| "setActiveToolsByName"
 	| "sendGoalModeContext"
@@ -90,14 +91,23 @@ export class RpcGoalController {
 	 */
 	#changeOverlappedReconcile = false;
 	readonly #onContinuationDropped: (() => void) | undefined;
+	readonly #reconcileOtherModes: (() => Promise<void>) | undefined;
 
 	/**
 	 * @param onContinuationDropped called when a pending continuation is abandoned
 	 *   (a gate closed while it waited), so settle reporting can re-check.
+	 * @param reconcileOtherModes reattaches the session's other modes (vibe) after
+	 *   each goal reconcile, in the same serialized step: after the previous
+	 *   session's pre-goal tool set is restored, and before {@link settled} resolves.
 	 */
-	constructor(session: RpcGoalSession, onContinuationDropped?: () => void) {
+	constructor(
+		session: RpcGoalSession,
+		onContinuationDropped?: () => void,
+		reconcileOtherModes?: () => Promise<void>,
+	) {
 		this.#session = session;
 		this.#onContinuationDropped = onContinuationDropped;
+		this.#reconcileOtherModes = reconcileOtherModes;
 	}
 
 	/**
@@ -236,6 +246,9 @@ export class RpcGoalController {
 		if (this.#session.getPlanModeState()?.enabled) {
 			throw new Error("Exit plan mode before starting a goal.");
 		}
+		if (this.#session.getVibeModeState()?.enabled) {
+			throw new Error("Exit vibe mode first.");
+		}
 	}
 
 	async #create(command: RpcGoalCommand): Promise<RpcGoalResult> {
@@ -320,7 +333,13 @@ export class RpcGoalController {
 	 */
 	async reconcile(options?: { preserveActiveGoal?: boolean }): Promise<void> {
 		this.#reconcilesPending++;
-		const run = this.#reconcileTask.then(() => this.#reconcileOnce(options));
+		const run = this.#reconcileTask.then(async () => {
+			try {
+				await this.#reconcileOnce(options);
+			} finally {
+				await this.#reconcileOtherModes?.();
+			}
+		});
 		this.#reconcileTask = run.catch(reportControllerError).finally(() => {
 			this.#reconcilesPending--;
 		});

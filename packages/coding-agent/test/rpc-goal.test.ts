@@ -475,6 +475,7 @@ describe("RpcGoalController continuation gate", () => {
 			hasPendingAsyncWork: () => false,
 			settleAsyncWork: async () => {},
 			getPlanModeState: () => undefined,
+			getVibeModeState: () => undefined,
 			getGoalModeState: () => goalState,
 			setGoalModeState: (state: GoalModeState | undefined) => {
 				goalState = state;

@@ -693,6 +693,8 @@ class SessionState:
     context_usage: ContextUsage | None = None
     goal: GoalModeState | None = None
     """Current goal mode; null when the session has no goal."""
+    vibe_mode_enabled: bool = False
+    """Vibe mode is on: the session directs worker sessions through the `vibe_*` tools."""
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -893,6 +895,7 @@ class SubagentSnapshot:
     progress: JsonObject | None = None
     """Raw `AgentProgress` record."""
     parent_tool_call_id: str | None = None
+    """Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn."""
     parent_id: str | None = None
     """Id of the subagent that spawned this one; null when the root session spawned it."""
     depth: int = 0
@@ -1317,6 +1320,7 @@ class SubagentLifecyclePayload:
     description: str | None = None
     session_file: str | None = None
     parent_tool_call_id: str | None = None
+    """Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn."""
     parent_id: str | None = None
     """Id of the subagent that spawned this one; null when the root session spawned it."""
     depth: int = 0
@@ -1334,6 +1338,7 @@ class SubagentProgressPayload:
     progress: JsonObject
     """Raw `AgentProgress` record."""
     parent_tool_call_id: str | None = None
+    """Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn."""
     parent_id: str | None = None
     """Id of the subagent that spawned this one; null when the root session spawned it."""
     depth: int = 0
@@ -1680,6 +1685,14 @@ class NegotiateProtocolResult:
     protocol_version: int
     contract_version: str | None = None
     """Semver of the RPC contract (the wire shape); absent on servers before contract versions."""
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class SetVibeModeResult:
+    enabled: bool
+    """Whether vibe mode is on after the call."""
+    killed: int
+    """Worker sessions the call killed by exiting vibe mode; 0 otherwise."""
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -2068,6 +2081,7 @@ def parse_session_state(value: object, path: str = "SessionState") -> SessionSta
         dump_tools=defaulted(payload, "dumpTools", array(parse_tool_descriptor), path, ()),
         context_usage=optional(payload, "contextUsage", parse_context_usage, path),
         goal=defaulted(payload, "goal", nullable(parse_goal_mode_state), path, None),
+        vibe_mode_enabled=defaulted(payload, "vibeModeEnabled", decode_bool, path, False),
     )
 
 
@@ -3176,6 +3190,14 @@ def parse_negotiate_protocol_result(value: object, path: str = "NegotiateProtoco
     )
 
 
+def parse_set_vibe_mode_result(value: object, path: str = "SetVibeModeResult") -> SetVibeModeResult:
+    payload = expect_object(value, path)
+    return SetVibeModeResult(
+        enabled=required(payload, "enabled", decode_bool, path),
+        killed=required(payload, "killed", decode_int, path),
+    )
+
+
 def parse_set_advisor_result(value: object, path: str = "SetAdvisorResult") -> SetAdvisorResult:
     payload = expect_object(value, path)
     return SetAdvisorResult(
@@ -3410,6 +3432,12 @@ class WireClient:
         if token_budget is not None:
             params["token_budget"] = token_budget
         return parse_goal_result(self._command("goal", params), "goal")
+
+    def set_vibe_mode(self, enabled: bool) -> SetVibeModeResult:
+        """Turn vibe mode on or off with the lifecycle of the interactive `/vibe` command; idempotent."""
+        params: dict[str, object] = {}
+        params["enabled"] = enabled
+        return parse_set_vibe_mode_result(self._command("set_vibe_mode", params), "set_vibe_mode")
 
     def set_ask_dialog(self, enabled: bool) -> bool:
         """Opt in to `ask` UI requests; returns the applied setting."""
@@ -4147,6 +4175,7 @@ __all__ = [
     "SetPrewalkResult",
     "SetStatusUiRequest",
     "SetTitleUiRequest",
+    "SetVibeModeResult",
     "SetWidgetUiRequest",
     "SlashCommandInput",
     "SlashCommandSource",
@@ -4324,6 +4353,7 @@ __all__ = [
     "parse_set_prewalk_result",
     "parse_set_status_ui_request",
     "parse_set_title_ui_request",
+    "parse_set_vibe_mode_result",
     "parse_set_widget_ui_request",
     "parse_slash_command_input",
     "parse_slash_subcommand",

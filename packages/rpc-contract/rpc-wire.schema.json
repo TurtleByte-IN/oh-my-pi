@@ -175,6 +175,17 @@
 				"clientOmit": []
 			},
 			{
+				"name": "set_vibe_mode",
+				"doc": "Turn vibe mode on or off with the lifecycle of the interactive `/vibe` command; idempotent.",
+				"params": "SetVibeModeParams",
+				"result": "SetVibeModeResult",
+				"nullable": false,
+				"unwrap": null,
+				"timeoutMs": null,
+				"completion": null,
+				"clientOmit": []
+			},
+			{
 				"name": "set_ask_dialog",
 				"doc": "Opt in to `ask` UI requests; returns the applied setting.",
 				"params": "SetAskDialogParams",
@@ -2780,6 +2791,11 @@
 					],
 					"description": "Current goal mode; null when the session has no goal.",
 					"default": null
+				},
+				"vibeModeEnabled": {
+					"type": "boolean",
+					"description": "Vibe mode is on: the session directs worker sessions through the `vibe_*` tools.",
+					"default": false
 				}
 			},
 			"required": [
@@ -3352,7 +3368,8 @@
 					"description": "Raw `AgentProgress` record."
 				},
 				"parentToolCallId": {
-					"type": "string"
+					"type": "string",
+					"description": "Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn."
 				},
 				"parentId": {
 					"anyOf": [
@@ -4674,7 +4691,8 @@
 					"type": "string"
 				},
 				"parentToolCallId": {
-					"type": "string"
+					"type": "string",
+					"description": "Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn."
 				},
 				"parentId": {
 					"anyOf": [
@@ -4728,7 +4746,8 @@
 					"description": "Raw `AgentProgress` record."
 				},
 				"parentToolCallId": {
-					"type": "string"
+					"type": "string",
+					"description": "Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn."
 				},
 				"parentId": {
 					"anyOf": [
@@ -6437,6 +6456,34 @@
 			},
 			"required": [
 				"op"
+			]
+		},
+		"SetVibeModeParams": {
+			"type": "object",
+			"properties": {
+				"enabled": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"enabled"
+			]
+		},
+		"SetVibeModeResult": {
+			"type": "object",
+			"properties": {
+				"enabled": {
+					"type": "boolean",
+					"description": "Whether vibe mode is on after the call."
+				},
+				"killed": {
+					"type": "integer",
+					"description": "Worker sessions the call killed by exiting vibe mode; 0 otherwise."
+				}
+			},
+			"required": [
+				"enabled",
+				"killed"
 			]
 		},
 		"SetAskDialogParams": {

@@ -242,6 +242,7 @@ import {
 	type VibeParentSession,
 	VibeSessionRegistry,
 } from "../vibe/runtime";
+import { readPersistedToolNames } from "../vibe/state";
 import { AssistantMessageComponent } from "@oh-my-pi/pi-tui/chat/assistant-message";
 import { setSvgFigureRendering } from "@oh-my-pi/pi-tui/chat/svg-figure";
 import { setTableCharts } from "@oh-my-pi/pi-tui/chat/table-chart";
@@ -617,17 +618,6 @@ function formatContextTokenCount(value: number): string {
 
 function hasAssistantToolCall(message: AgentMessage): boolean {
 	return message.role === "assistant" && message.content.some(block => block.type === "toolCall");
-}
-
-/**
- * Reads a tool-name snapshot out of a persisted `mode_change` payload. Session
- * files are user-editable and survive across versions, so anything that is not
- * a plain array of strings is treated as absent rather than trusted.
- */
-function readPersistedToolNames(value: unknown): string[] | undefined {
-	if (!Array.isArray(value)) return undefined;
-	if (!value.every(name => typeof name === "string")) return undefined;
-	return value as string[];
 }
 
 export function shouldEnterPlanModeOnStartup(

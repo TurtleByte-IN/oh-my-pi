@@ -95,8 +95,8 @@ export class VibeSpawnTool implements AgentTool<typeof vibeSpawnSchema, VibeTool
 		this.description = prompt.render(vibeSpawnDescription);
 	}
 
-	async execute(_toolCallId: string, params: typeof vibeSpawnSchema.infer): Promise<AgentToolResult<VibeToolDetails>> {
-		const { id, jobId } = await VibeSessionRegistry.global().spawn(this.session, params);
+	async execute(toolCallId: string, params: typeof vibeSpawnSchema.infer): Promise<AgentToolResult<VibeToolDetails>> {
+		const { id, jobId } = await VibeSessionRegistry.global().spawn(this.session, { ...params, toolCallId });
 		return textResult(
 			`Spawned ${params.cli} session \`${id}\` (turn job \`${jobId}\`). The turn result will be delivered when it finishes — keep directing other sessions meanwhile. Continue this one with vibe_send \`${id}\`.`,
 			{ op: "spawn", ...wallOf(this.session), spawned: { id, cli: params.cli, jobId } },

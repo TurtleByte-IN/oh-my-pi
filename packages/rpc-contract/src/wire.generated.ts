@@ -521,6 +521,8 @@ export interface SessionState {
 	contextUsage?: ContextUsage;
 	/** Current goal mode; null when the session has no goal. */
 	goal?: GoalModeState | null;
+	/** Vibe mode is on: the session directs worker sessions through the `vibe_*` tools. */
+	vibeModeEnabled?: boolean;
 }
 
 export interface BashResult {
@@ -697,6 +699,7 @@ export interface SubagentSnapshot {
 	sessionFile?: string;
 	/** Raw `AgentProgress` record. */
 	progress?: Record<string, unknown>;
+	/** Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn. */
 	parentToolCallId?: string;
 	/** Id of the subagent that spawned this one; null when the root session spawned it. */
 	parentId?: string | null;
@@ -1097,6 +1100,7 @@ export interface SubagentLifecyclePayload {
 	index: number;
 	description?: string;
 	sessionFile?: string;
+	/** Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn. */
 	parentToolCallId?: string;
 	/** Id of the subagent that spawned this one; null when the root session spawned it. */
 	parentId?: string | null;
@@ -1113,6 +1117,7 @@ export interface SubagentProgressPayload {
 	task: string;
 	/** Raw `AgentProgress` record. */
 	progress: Record<string, unknown>;
+	/** Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn. */
 	parentToolCallId?: string;
 	/** Id of the subagent that spawned this one; null when the root session spawned it. */
 	parentId?: string | null;
@@ -1642,6 +1647,17 @@ export interface GoalParams {
 	token_budget?: number;
 }
 
+export interface SetVibeModeParams {
+	enabled: boolean;
+}
+
+export interface SetVibeModeResult {
+	/** Whether vibe mode is on after the call. */
+	enabled: boolean;
+	/** Worker sessions the call killed by exiting vibe mode; 0 otherwise. */
+	killed: number;
+}
+
 export interface SetAskDialogParams {
 	enabled: boolean;
 }
@@ -1995,6 +2011,7 @@ export interface RpcWireCommands {
 	set_fast_mode: { params: SetFastModeParams; result: FastModeResult };
 	set_slow_mode: { params: SetSlowModeParams; result: SetSlowModeResult };
 	goal: { params: GoalParams; result: GoalResult };
+	set_vibe_mode: { params: SetVibeModeParams; result: SetVibeModeResult };
 	set_ask_dialog: { params: SetAskDialogParams; result: SetAskDialogResult };
 	set_approval_mode: { params: SetApprovalModeParams; result: SetApprovalModeResult };
 	set_advisor: { params: SetAdvisorParams; result: SetAdvisorResult };
