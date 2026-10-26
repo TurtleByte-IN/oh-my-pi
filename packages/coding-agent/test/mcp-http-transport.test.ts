@@ -11,6 +11,12 @@ const encoder = new TextEncoder();
 const REQUEST_TIMEOUT_MS = 50;
 const GUARD_TIMEOUT_MS = 500;
 
+// "routes GET-listener progress during a pending POST and stops after settlement" waits a fixed 150 ms
+// for SSE progress and flakes on the TurtleByte-IN fork's GitHub-hosted CI (oh-my-pi main run
+// 40281054118). Tolerated by name per the Ompanel program BASELINE.md "Fork CI" section, so it is
+// skipped on GitHub-hosted runners (RUNNER_ENVIRONMENT; the CI test runner clears GITHUB_ACTIONS).
+const itLocalOnly = it.skipIf(process.env.RUNNER_ENVIRONMENT === "github-hosted");
+
 let server: Bun.Server<undefined> | null = null;
 
 type ToolList = {
@@ -111,7 +117,7 @@ describe("MCP Streamable HTTP request progress", () => {
 		}
 	});
 
-	it("routes GET-listener progress during a pending POST and stops after settlement", async () => {
+	itLocalOnly("routes GET-listener progress during a pending POST and stops after settlement", async () => {
 		let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
 		let token: unknown;
 		const release = Promise.withResolvers<void>();
