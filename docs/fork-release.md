@@ -144,7 +144,7 @@ public HTTPS with its push URL disabled, so it cannot push upstream.
 Each run picks the newest stable upstream tag (`vX.Y.Z`; `-ompanel.N` and other suffixes are
 ignored). A newer tag contains the older ones, so tags in between are not considered on their
 own. The run stops when fork `main` already contains the tag, or when an earlier run already
-decided it, i.e. a PR from `chore/upstream-<tag>` or a `Upstream <tag> not adopted: …` issue
+decided it, i.e. a PR from `chore/upstream-<tag>` or an `upstream-merge` issue titled `Upstream <tag> …`
 exists in any state. Otherwise it merges the tag into `main` on the runner, on branch
 `chore/upstream-<tag>`, and runs the RPC contract suite on the result. That is the same
 command as the `RPC contract` job in `ci.yml`, with the append-only check against `main`. It runs
@@ -196,5 +196,10 @@ and workflows. With it, the workflow pushes and opens the PR as the token's owne
 CI like any other, so nothing is dispatched. Only an admin can create the token; until then, the
 `GITHUB_TOKEN` path above applies.
 
-The repository setting "Allow GitHub Actions to create and approve pull requests" (Settings →
-Actions → General) must stay on, or `gh pr create` fails.
+`GITHUB_TOKEN` can open a pull request only when "Allow GitHub Actions to create and approve pull
+requests" is on, both for the TurtleByte-IN organization and for this repository (Settings →
+Actions → General). The organization has it off, so the repository cannot turn it on. While it is
+off, `gh pr create` fails after the push and the CI dispatch. The workflow then opens an
+`Upstream <tag> ready for a PR` issue instead. It holds a link that opens the PR from the pushed
+branch, and the PR description to paste. A PR a person opens runs CI as usual. The
+`UPSTREAM_MERGE_TOKEN` secret avoids this too.

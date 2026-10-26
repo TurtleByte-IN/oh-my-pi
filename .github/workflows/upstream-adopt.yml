@@ -109,7 +109,7 @@ jobs:
                 seen="$( {
                   gh pr list --state all --head "$branch" --limit 10 --json url
                   gh issue list --state all --label "$LABEL" --limit 200 --json url,title |
-                    jq --arg p "Upstream $tag not adopted:" '[.[] | select(.title | startswith($p))]'
+                    jq --arg p "Upstream $tag " '[.[] | select(.title | startswith($p))]'
                 } | jq -rs 'add | .[].url')"
                 if [[ -n "$seen" ]]; then
                   summary "Upstream \`$tag\` was already considered: $seen"
@@ -251,7 +251,7 @@ jobs:
               } > "$body"
 
               if [[ "$DRY_RUN" == true ]]; then
-                summary "Dry run: contract suite green. Would push \`$BRANCH\`, open PR **$pr_title**, close older open \`$LABEL\` PRs and issues, and dispatch \`ci.yml\` on \`$BRANCH\`." "" "$(cat "$body")"
+                summary "Dry run: contract suite green. Would push \`$BRANCH\`, dispatch \`ci.yml\` on it, open PR **$pr_title** (or issue **Upstream $TAG ready for a PR** if Actions may not open PRs) and close older open \`$LABEL\` PRs and issues." "" "$(cat "$body")"
                 exit 0
               fi
 
@@ -273,10 +273,26 @@ jobs:
                 exit 1
               fi
 
-              url="$(gh pr create --base main --head "$BRANCH" --title "$pr_title" \
-                --label "$LABEL" --body-file "$body")"
               if [[ "$USE_PAT" != true ]]; then
                 gh workflow run ci.yml --ref "$BRANCH"
+              fi
+              if ! url="$(gh pr create --base main --head "$BRANCH" --title "$pr_title" \
+                --label "$LABEL" --body-file "$body")"; then
+                # GITHUB_TOKEN may not open PRs while "Allow GitHub Actions to
+                # create and approve pull requests" is off. A person opens it
+                # from the issue.
+                open_pr="https://github.com/$GITHUB_REPOSITORY/compare/main...$BRANCH?expand=1&labels=$LABEL&title=$(jq -rn --arg t "$pr_title" '$t | @uri')"
+                {
+                  echo "\`$BRANCH\` holds a clean merge of upstream [\`$TAG\`]($release) that passed the RPC contract suite, but this workflow could not open the pull request (docs/fork-release.md, \"Upstream adoption\")."
+                  echo
+                  echo "**[Open the pull request]($open_pr)** and paste the description below. CI was dispatched on the branch already."
+                  echo
+                  echo "---"
+                  echo
+                  cat "$body"
+                } > "$RUNNER_TEMP/ready-issue.md"
+                url="$(gh issue create --title "Upstream $TAG ready for a PR" --label "$LABEL" \
+                  --body-file "$RUNNER_TEMP/ready-issue.md")"
               fi
               # This tag contains every older one, so older open adoption PRs
               # and skip issues are closed.
