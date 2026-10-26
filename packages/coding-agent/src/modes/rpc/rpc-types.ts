@@ -186,6 +186,8 @@ export interface RpcSessionState {
 	sessionFile?: string;
 	sessionId: string;
 	sessionName?: string;
+	/** `workspace.trusted` as the session resolved it (contract 1.9.0). */
+	workspaceTrusted?: boolean;
 	autoCompactionEnabled: boolean;
 	fastModeEnabled: boolean;
 	fastModeActive: boolean;

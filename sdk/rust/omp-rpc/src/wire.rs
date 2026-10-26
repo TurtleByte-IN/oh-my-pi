@@ -3091,6 +3091,9 @@ pub struct SessionState {
 	pub session_file: Option<String>,
 	#[serde(rename = "sessionName", default, skip_serializing_if = "Option::is_none")]
 	pub session_name: Option<String>,
+	/// `workspace.trusted` as the session resolved it: `false` ignores the project's approval policies, MCP servers, extensions and hooks. Contract `1.9.0`.
+	#[serde(rename = "workspaceTrusted", default, skip_serializing_if = "Option::is_none")]
+	pub workspace_trusted: Option<bool>,
 	#[serde(rename = "autoCompactionEnabled", default = "default_session_state_auto_compaction_enabled")]
 	pub auto_compaction_enabled: bool,
 	#[serde(rename = "fastModeEnabled", default = "default_session_state_fast_mode_enabled")]

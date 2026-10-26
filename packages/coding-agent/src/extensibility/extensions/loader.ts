@@ -21,6 +21,8 @@ import { hasFsCode, isEacces, isEnoent, logger } from "@oh-my-pi/pi-utils";
 import { type ExtensionModule, extensionModuleCapability } from "../../capability/extension-module";
 import { type Hook, hookCapability } from "../../capability/hook";
 import { isServiceTierFamily, isServiceTierForFamily } from "../../config/service-tier";
+import { findScopedSettings } from "../../config/settings";
+import { cfgWorkspaceTrusted } from "../../tools/settings";
 import { loadCapability } from "../../discovery";
 import { getExtensionNameFromPath } from "../../discovery/helpers";
 import type { ExecOptions } from "../../exec/exec";
@@ -608,6 +610,9 @@ export async function discoverExtensionPaths(
 	};
 
 	const ambient = options.ambient !== false;
+	// An untrusted workspace (`workspace.trusted: false`) runs none of the project's own code.
+	const scoped = findScopedSettings(cwd);
+	const projectTrusted = scoped === undefined || cfgWorkspaceTrusted.get(scoped) !== false;
 	if (ambient) {
 		// 1. Discover extension modules via capability API (native .omp/.pi only).
 		// Scope the load to the native provider — the extension-module capability
@@ -620,6 +625,7 @@ export async function discoverExtensionPaths(
 			providers: ["native"],
 		});
 		for (const ext of discovered.items) {
+			if (!projectTrusted && ext.level === "project") continue;
 			addPath(ext.path);
 		}
 	}
@@ -632,6 +638,7 @@ export async function discoverExtensionPaths(
 		if (options.includeAmbientHooks !== false) {
 			const hooks = await loadCapability<Hook>(hookCapability.id, loadOptions);
 			for (const hookPath of hooks.items
+				.filter(hook => projectTrusted || hook.level !== "project")
 				.map(hook => hook.path)
 				.filter(hookPath => isExtensionFile(path.basename(hookPath)))) {
 				addPath(hookPath);

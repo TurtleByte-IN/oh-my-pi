@@ -62,7 +62,7 @@ import { resolvePrewalkTarget } from "../../slash-commands/builtin-modes";
 import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpers/logout";
 import { defaultLoadModeForToolName } from "../../tools/essential-tools";
 import { isApprovalMode } from "../../tools/approval";
-import { cfgToolsApprovalMode } from "../../tools/settings";
+import { cfgToolsApprovalMode, cfgWorkspaceTrusted } from "../../tools/settings";
 import { USER_TODO_EDIT_CUSTOM_TYPE } from "../../tools/todo";
 import type { EventBus } from "../../utils/event-bus";
 import { selectRpcEntries } from "./rpc-compat";
@@ -2185,6 +2185,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 					sessionFile: session.sessionFile,
 					sessionId: session.sessionId,
 					sessionName: session.sessionName,
+					workspaceTrusted: cfgWorkspaceTrusted.get(session.settings) !== false,
 					autoCompactionEnabled: session.autoCompactionEnabled,
 					queuedMessageCount: session.queuedMessageCount,
 					hasPendingAsyncWork: session.hasPendingAsyncWork(),

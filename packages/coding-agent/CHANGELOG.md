@@ -4,6 +4,7 @@
 
 ### Added
 
+- Setting `workspace.trusted` (default `true`): `false`, set by a `--config` overlay or the user's global config (never by the project), ignores the project's `tools.approval`, `bash.patterns` and `extensions`, loads no project MCP servers, extensions or hooks; RPC `get_state` reports `workspaceTrusted`; RPC contract `1.9.0`. Outside yolo, a write to agent configuration (`.omp/`, `.pi/`, `.mcp.json`, `.claude/settings*.json`, loaded `--config` files) always asks, so an auto-approved edit cannot widen later approvals
 - RPC `ready` frames and `negotiate_protocol` responses report `contractVersion`, the semver of the RPC wire contract (starting at `1.0.0`); the generated `packages/rpc-contract` package carries the matching TypeScript types and JSON Schema for hosts to pin ([#2](https://github.com/TurtleByte-IN/oh-my-pi/issues/2))
 - RPC commands `set_approval_mode`, `set_advisor`, `set_prewalk`, and `set_tool_enabled` change the approval mode, the advisor, the prewalk handoff, and one tool's enabled state in a running session without a restart; RPC contract `1.1.0` ([#11](https://github.com/TurtleByte-IN/oh-my-pi/issues/11))
 - RPC subagent frames (`subagent_lifecycle`, `subagent_progress`, `subagent_event`, including the subagent's own tool events) and `get_subagents` entries carry `parentId` (the spawning subagent, `null` for the root session) and `depth` (0 for a subagent the root session spawned), so a host can draw the spawn tree; RPC contract `1.2.0` ([#19](https://github.com/TurtleByte-IN/oh-my-pi/issues/19))

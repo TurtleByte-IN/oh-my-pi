@@ -2687,6 +2687,10 @@
 				"sessionName": {
 					"type": "string"
 				},
+				"workspaceTrusted": {
+					"type": "boolean",
+					"description": "`workspace.trusted` as the session resolved it: `false` ignores the project's approval policies, MCP servers, extensions and hooks. Contract `1.9.0`."
+				},
 				"autoCompactionEnabled": {
 					"type": "boolean",
 					"default": false

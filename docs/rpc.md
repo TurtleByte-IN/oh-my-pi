@@ -1979,3 +1979,14 @@ with RpcClient(provider="anthropic", model="claude-sonnet-4-5") as client:
 ```
 
 By default, `RpcClient` starts `omp --mode rpc`; pass `command=[...]` to own the exact child command. It handles request correlation, typed notifications, v2 negotiation and chunk reassembly, message pagination, extension UI (including the opt-in `ask` dialog), and host-owned tools and URI schemes. Its command methods and `on_<frame type>` listeners are generated from the wire schema, so it wraps every command above; the `messageUpdates: "delta"` projection stays raw-protocol only. The Python package owns that client API and process lifecycle; this document and `rpc-types.ts` remain the canonical wire contract. Use raw protocol frames when a client library does not wrap the surface you need.
+
+## Workspace trust (contract 1.9.0)
+
+`get_state` reports `workspaceTrusted`: the session's `workspace.trusted`. A host that
+does not trust the working directory sets `workspace.trusted: false` in its `--config`
+overlay (the project layer cannot set it). The session then ignores the project's
+`tools.approval`, `bash.patterns` and `extensions`, loads no project MCP servers
+(`mcp.enableProjectConfig` resolves `false`), extensions or hooks. Independently, outside
+`yolo` a write-tier call whose target is agent configuration (`.omp/`, `.pi/`, `.mcp.json`,
+`mcp.json`, `.claude/settings*.json`, a loaded `--config` file) always prompts, even when
+the mode, a user `allow` or a remembered grant would approve it.

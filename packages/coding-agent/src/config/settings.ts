@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { registerAgentConfigFiles } from "./agent-config-paths";
 import { roleDefaultModels } from "@oh-my-pi/pi-catalog/compat/behavior";
 import { type GeneratedProvider, getBundledModels } from "@oh-my-pi/pi-catalog/models";
 import { type Api, type Model, modelKind } from "@oh-my-pi/pi-catalog/types";
@@ -297,6 +298,34 @@ function projectLayerForMerge(project: RawSettings): RawSettings {
 		delete filteredRoles[role];
 	}
 	return filteredRoles ? { ...project, modelRoles: filteredRoles } : project;
+}
+
+/** Project-layer paths an untrusted workspace (`workspace.trusted: false`) never honors. */
+const UNTRUSTED_PROJECT_PATHS: readonly (readonly string[])[] = [
+	["tools", "approval"],
+	["bash", "patterns"],
+	["extensions"],
+	["mcp", "enableProjectConfig"],
+	["workspace", "trusted"],
+];
+
+/**
+ * Whether a layer above the project (runtime, `--config` overlay, global) sets
+ * `workspace.trusted: false`. The project layer is never asked, so a repo cannot trust itself.
+ */
+function isWorkspaceUntrusted(layers: Pick<OwnLayers, "global" | "configOverlay" | "overrides">): boolean {
+	for (const layer of [layers.overrides, layers.configOverlay, layers.global]) {
+		const value = getByPath(layer, ["workspace", "trusted"]);
+		if (typeof value === "boolean") return !value;
+	}
+	return false;
+}
+
+/** `project` without the paths an untrusted workspace ignores. */
+function untrustedProjectLayer(project: RawSettings): RawSettings {
+	const stripped = structuredClone(project);
+	for (const segments of UNTRUSTED_PROJECT_PATHS) deleteByPath(stripped, segments);
+	return stripped;
 }
 
 /** One instance's own layers, lowest precedence first. */
@@ -679,6 +708,7 @@ export class Settings {
 		const configFiles = process.env.PI_CONFIG_FILES?.split(path.delimiter).filter(Boolean) ?? [];
 		if (options.configFiles) configFiles.push(...options.configFiles);
 		this.#configFiles = configFiles.map(file => path.resolve(this.#cwd, expandTilde(file)));
+		registerAgentConfigFiles(this.#configFiles);
 		this.#persist = !options.inMemory && options.readOnly !== true;
 		liveSettingsInstances.add(new WeakRef(this));
 		if (options.overrides) this.#overrides = this.#overrideLayer(options.overrides);
@@ -3992,11 +4022,21 @@ export class Settings {
 		};
 	}
 
-	/** `layers` (global, project, `--config` overlay, runtime) merged in precedence order. */
+	/**
+	 * `layers` (global, project, `--config` overlay, runtime) merged in precedence order. An
+	 * untrusted workspace merges the project without its approval, MCP and extension paths and
+	 * loads no project MCP servers.
+	 */
 	#mergeOwnLayers(layers: OwnLayers): RawSettings {
-		let merged = this.#deepMerge(this.#deepMerge({}, layers.global), projectLayerForMerge(layers.project));
+		const untrusted = isWorkspaceUntrusted(layers);
+		const project = projectLayerForMerge(layers.project);
+		let merged = this.#deepMerge(
+			this.#deepMerge({}, layers.global),
+			untrusted ? untrustedProjectLayer(project) : project,
+		);
 		merged = this.#deepMerge(merged, layers.configOverlay);
-		return this.#deepMerge(merged, layers.overrides);
+		merged = this.#deepMerge(merged, layers.overrides);
+		return untrusted ? this.#deepMerge(merged, { mcp: { enableProjectConfig: false } }) : merged;
 	}
 
 	/** `own` merged over an overlay parent's current view (itself for a root instance). */

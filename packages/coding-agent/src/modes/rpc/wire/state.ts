@@ -118,6 +118,10 @@ export const stateDefs = {
 		"sessionFile?": "string",
 		sessionId: "string",
 		"sessionName?": "string",
+		"workspaceTrusted?": doc(
+			"boolean",
+			"`workspace.trusted` as the session resolved it: `false` ignores the project's approval policies, MCP servers, extensions and hooks. Contract `1.9.0`.",
+		),
 		autoCompactionEnabled: absentAs("boolean", false),
 		fastModeEnabled: absentAs("boolean", false),
 		fastModeActive: absentAs("boolean", false),
