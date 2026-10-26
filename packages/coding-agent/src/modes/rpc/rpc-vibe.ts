@@ -13,7 +13,6 @@ import { formatModelString } from "../../config/model-resolver";
 import type { AgentSession } from "../../session/agent-session";
 import type { SessionManager } from "../../session/session-manager";
 import { type VibeOwnerScope, type VibeParentSession, VibeSessionRegistry } from "../../vibe/runtime";
-import { readPersistedToolNames } from "../../vibe/state";
 
 export type RpcVibeSession = Pick<
 	AgentSession,
@@ -29,7 +28,6 @@ export type RpcVibeSession = Pick<
 	| "canActivateVibeTools"
 	| "activateVibeTools"
 	| "deactivateVibeTools"
-	| "removeVibeToolsPreservingActive"
 	| "getVibeModeState"
 	| "setVibeModeState"
 	| "sendVibeModeContext"
@@ -47,16 +45,13 @@ export interface RpcVibeModeResult {
 }
 
 /** The mode the current branch last journaled, as `buildSessionContext()` reports it, without building messages. */
-function journaledMode(sessionManager: Pick<SessionManager, "getBranchView">): {
-	mode: string;
-	data?: Record<string, unknown>;
-} {
+function journaledMode(sessionManager: Pick<SessionManager, "getBranchView">): string {
 	const branch = sessionManager.getBranchView();
 	for (let index = branch.length - 1; index >= 0; index--) {
 		const entry = branch[index];
-		if (entry.type === "mode_change") return { mode: entry.mode, data: entry.data };
+		if (entry.type === "mode_change") return entry.mode;
 	}
-	return { mode: "none" };
+	return "none";
 }
 
 export class RpcVibeController {
@@ -155,16 +150,13 @@ export class RpcVibeController {
 		}
 	}
 
-	/**
-	 * `previousTools`: the pre-vibe tool set to restore on exit; defaults to the
-	 * current enabled set.
-	 */
-	async #enter(options: { persistModeChange: boolean; previousTools?: string[] }): Promise<void> {
+	/** `persistModeChange`: journal the entry (with the pre-vibe tool set) as a `mode_change`. */
+	async #enter(options: { persistModeChange: boolean }): Promise<void> {
 		const session = this.#session;
 		const registry = VibeSessionRegistry.global();
 		const ownerScope = registry.ownerScope(this.#parentSession());
 		registry.activateScope(ownerScope);
-		const previousTools = options.previousTools ?? session.getEnabledToolNames();
+		const previousTools = session.getEnabledToolNames();
 		const baseTools = ["read"];
 		if (session.hasBuiltInTool("todo")) baseTools.push("todo");
 		await session.activateVibeTools(baseTools);
@@ -197,7 +189,7 @@ export class RpcVibeController {
 		const session = this.#session;
 		const scopeAlreadySuspended = this.#scopeSuspendedForSwitch;
 		this.#scopeSuspendedForSwitch = false;
-		const { mode, data } = journaledMode(session.sessionManager);
+		const mode = journaledMode(session.sessionManager);
 		const parent = this.#parentSession();
 		const registry = VibeSessionRegistry.global();
 		const ownerScope = this.#ownerScope;
@@ -211,9 +203,9 @@ export class RpcVibeController {
 			ownerScope.parentSessionId === targetScope.parentSessionId &&
 			ownerScope.parentSessionFile === targetScope.parentSessionFile;
 		if (wasEnabled && !preserve) {
-			// The session change already restored the target's tools; the snapshot belongs
-			// to the previous session, so only the vibe tools are stripped.
-			await session.removeVibeToolsPreservingActive();
+			// A session change keeps the process's live tool set (it is not per session), so the
+			// pre-vibe snapshot is restored, as the goal reconcile restores its pre-goal set.
+			await session.deactivateVibeTools(this.#previousTools ?? []);
 			session.setVibeModeState(undefined);
 			this.#previousTools = undefined;
 			this.#ownerScope = undefined;
@@ -222,11 +214,7 @@ export class RpcVibeController {
 		await registry.rehydrate(parent);
 		if (mode !== "vibe" || preserve) return;
 		try {
-			await this.#enter({
-				persistModeChange: false,
-				// The live set is the previous session's reduced vibe set: use the target's own snapshot.
-				previousTools: wasEnabled ? readPersistedToolNames(data?.previousTools) : undefined,
-			});
+			await this.#enter({ persistModeChange: false });
 		} catch (error) {
 			logger.warn("RPC vibe mode could not reattach to the session", {
 				sessionFile: session.sessionManager.getSessionFile(),

@@ -100,11 +100,7 @@ export class RpcGoalController {
 	 *   each goal reconcile, in the same serialized step: after the previous
 	 *   session's pre-goal tool set is restored, and before {@link settled} resolves.
 	 */
-	constructor(
-		session: RpcGoalSession,
-		onContinuationDropped?: () => void,
-		reconcileOtherModes?: () => Promise<void>,
-	) {
+	constructor(session: RpcGoalSession, onContinuationDropped?: () => void, reconcileOtherModes?: () => Promise<void>) {
 		this.#session = session;
 		this.#onContinuationDropped = onContinuationDropped;
 		this.#reconcileOtherModes = reconcileOtherModes;

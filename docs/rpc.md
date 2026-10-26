@@ -155,6 +155,7 @@ Important edge behavior from runtime:
 - `{ id?, type: "set_fast_mode", enabled: boolean }`
 - `{ id?, type: "set_slow_mode", enabled: boolean }`
 - `{ id?, type: "goal", op: "get" | "create" | "resume" | "pause" | "drop", objective?: string, token_budget?: number }`
+- `{ id?, type: "set_vibe_mode", enabled: boolean }`
 - `{ id?, type: "set_ask_dialog", enabled: boolean }`
 - `{ id?, type: "set_approval_mode", mode: "always-ask" | "always-ask-cached" | "write" | "yolo" }`
 - `{ id?, type: "set_advisor", enabled: boolean }`
@@ -551,7 +552,8 @@ field is absent outside both stages. No event carries it, so re-read
     "contextWindow": 200000,
     "percent": 0.55
   },
-  "goal": null
+  "goal": null,
+  "vibeModeEnabled": false
 }
 ```
 
@@ -576,10 +578,10 @@ including those made by the agent's `goal` tool.
 
 - `get` only reads. It never starts a turn.
 - `create` needs `goal.enabled`, a non-empty `objective`, and no active or paused
-  goal. It is refused in plan mode, and `token_budget` must be a positive integer.
-  It adds the `goal` tool to the active tools.
-- `resume` resumes a paused goal (refused in plan mode). `pause` and `drop` restore
-  the active tools from before the goal started.
+  goal. It is refused in plan mode and in vibe mode (`Exit vibe mode first.`), and
+  `token_budget` must be a positive integer. It adds the `goal` tool to the active tools.
+- `resume` resumes a paused goal (refused in plan mode and in vibe mode). `pause` and
+  `drop` restore the active tools from before the goal started.
 - Failures are ordinary `success: false` responses.
 
 Goals do not continue on their own over RPC unless `goal.continuationModes`
@@ -612,6 +614,48 @@ turn, sent as a hidden `goal-continuation` message.
 
 When the agent completes the goal, the goal tool is removed again and
 `get_state.goal` becomes `null`.
+
+### `set_vibe_mode` payload
+
+`set_vibe_mode` turns vibe mode on or off with the lifecycle of the interactive
+`/vibe` command. In vibe mode the agent directs persistent `fast`/`good` worker
+sessions through the `vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill` and
+`vibe_list` tools. Contract `1.7.0`; older servers answer
+`Unknown command: set_vibe_mode`.
+
+```json
+{ "id": "req_1", "type": "set_vibe_mode", "enabled": true }
+{ "id": "req_1", "type": "response", "command": "set_vibe_mode", "success": true, "data": { "enabled": true, "killed": 0 } }
+```
+
+- Entering replaces the active tools with `read`, the built-in `todo` when the
+  session has it, and the vibe tools, and journals a `mode_change` to `vibe`. When a
+  turn is running, the vibe context reaches it as a steer.
+- Exiting aborts a running turn, kills every worker session, journals the exit and
+  restores the active tools from before vibe mode. `killed` counts the killed
+  worker sessions; it is `0` on entry and when nothing changed.
+- The call is idempotent: asking for the current state returns it with `killed: 0`.
+- `get_state.vibeModeEnabled` reports the mode.
+
+Entering fails with a `success: false` response:
+
+- plan mode is on → `error: "Exit plan mode first."`
+- a goal is active or paused → `error: "Exit goal mode first."`
+- the session has no vibe tools (a subagent session) → `error: "Vibe mode is unavailable
+  in this session: only a top-level session can direct workers."`
+
+While vibe mode is on, `new_session`, `fork`, and `open_session` when it would start
+a new session fail with `Cannot … while vibe mode is active. Exit vibe mode first.`
+`switch_session`, `branch` and an `open_session` that resumes another session are
+allowed: the current session's workers are detached (not killed) and its vibe mode
+is left, and vibe mode is restored if the target session journaled it, as the TUI
+does on resume. A process started on a session journaled in vibe mode starts in vibe
+mode.
+
+Each worker turn reports `subagent_lifecycle` and `subagent_progress` frames (at
+subscription level `"progress"` or `"events"`) whose `parentToolCallId` is the id of
+the `vibe_spawn` tool call that created the worker, on its first turn and on every
+later `vibe_send` turn, so a host can nest the worker under that call.
 
 ### `set_slow_mode` payload
 
