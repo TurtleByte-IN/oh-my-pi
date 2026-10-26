@@ -111,6 +111,15 @@ export const rpcCommands: readonly RpcCommandSpec[] = [
 		result: "GoalResult",
 	},
 	{
+		name: "set_vibe_mode",
+		doc: "Turn vibe mode on or off with the lifecycle of the interactive `/vibe` command; idempotent.",
+		params: { enabled: "boolean" },
+		result: {
+			enabled: doc("boolean", "Whether vibe mode is on after the call."),
+			killed: doc("number.integer", "Worker sessions the call killed by exiting vibe mode; 0 otherwise."),
+		},
+	},
+	{
 		name: "set_ask_dialog",
 		doc: "Opt in to `ask` UI requests; returns the applied setting.",
 		params: { enabled: "boolean" },

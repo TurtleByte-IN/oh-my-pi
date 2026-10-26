@@ -144,6 +144,12 @@ interface VibeRecord {
 	modelOverride?: string | string[];
 	/** Pre-expansion role alias behind {@link modelOverride}, when the worker agent named one. */
 	modelRole?: string;
+	/**
+	 * Id of the `vibe_spawn` tool call that created this worker. Every turn's
+	 * subagent lifecycle/progress frames carry it as `parentToolCallId`, so hosts
+	 * nest the worker under that call across later `vibe_send` turns.
+	 */
+	spawnToolCallId?: string;
 	state: VibeSessionState;
 	createdAt: number;
 	lastActivityAt: number;
@@ -781,6 +787,7 @@ export class VibeSessionRegistry {
 				agent,
 				modelOverride,
 				modelRole,
+				spawnToolCallId: spawn.toolCallId,
 				state: "idle",
 				createdAt: spawn.createdAt,
 				lastActivityAt: candidate.lastActivityAt,
@@ -800,8 +807,14 @@ export class VibeSessionRegistry {
 		return restored;
 	}
 
-	/** Spawn a persistent worker session and start its first turn in the background. */
-	async spawn(session: ToolSession, args: { cli: VibeCli; name?: string; prompt: string }): Promise<VibeSpawnOutcome> {
+	/**
+	 * Spawn a persistent worker session and start its first turn in the background.
+	 * `toolCallId` is the spawning `vibe_spawn` call, stamped on the worker's frames.
+	 */
+	async spawn(
+		session: ToolSession,
+		args: { cli: VibeCli; name?: string; prompt: string; toolCallId?: string },
+	): Promise<VibeSpawnOutcome> {
 		const scope = this.ownerScope(session);
 		return this.#withTerminationLock(scope, () => this.#spawnLocked(session, scope, args));
 	}
@@ -809,7 +822,7 @@ export class VibeSessionRegistry {
 	async #spawnLocked(
 		session: ToolSession,
 		scope: VibeOwnerScope,
-		args: { cli: VibeCli; name?: string; prompt: string },
+		args: { cli: VibeCli; name?: string; prompt: string; toolCallId?: string },
 	): Promise<VibeSpawnOutcome> {
 		if (this.#terminatedScopes.has(scopeKey(scope, ""))) {
 			throw new ToolError("Vibe mode has exited; enter Vibe mode again before spawning a worker.");
@@ -839,6 +852,7 @@ export class VibeSessionRegistry {
 			agent,
 			modelOverride,
 			modelRole,
+			spawnToolCallId: args.toolCallId,
 			state: "starting",
 			createdAt,
 			lastActivityAt: createdAt,
@@ -862,6 +876,7 @@ export class VibeSessionRegistry {
 						agent: agent.name,
 						childSessionFile: childSessionName,
 						createdAt,
+						...(args.toolCallId ? { toolCallId: args.toolCallId } : {}),
 					},
 					record.parentSessionFile,
 				);
@@ -1291,6 +1306,7 @@ export class VibeSessionRegistry {
 			description: `vibe ${record.cli} session`,
 			index: 0,
 			id: record.id,
+			parentToolCallId: record.spawnToolCallId,
 			taskDepth: session.taskDepth ?? 0,
 			detached: true,
 			modelOverride: record.modelOverride,
@@ -1398,6 +1414,7 @@ export class VibeSessionRegistry {
 								onProgress,
 								eventBus: session.eventBus,
 								subagentEventBus: session.subagentEventBus,
+								parentToolCallId: record.spawnToolCallId,
 								artifactsDir: session.getSessionFile()?.slice(0, -6),
 							});
 					return await this.#settleTurn(session, manager, record, turn, ownJobId, turnIndex, result);

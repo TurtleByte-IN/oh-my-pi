@@ -29,6 +29,8 @@ export interface VibeSpawnLifecycleEvent extends VibeLifecycleBase {
 	agent: string;
 	childSessionFile: string;
 	createdAt: number;
+	/** Id of the `vibe_spawn` tool call that created the worker; absent in events written before it was recorded. */
+	toolCallId?: string;
 }
 
 export interface VibeTurnLifecycleEvent extends VibeLifecycleBase {
@@ -81,6 +83,7 @@ export function parseLifecycleEvent(value: unknown): VibeLifecycleEvent | undefi
 			agent: data.agent,
 			childSessionFile: data.childSessionFile,
 			createdAt: data.createdAt,
+			...(typeof data.toolCallId === "string" && data.toolCallId ? { toolCallId: data.toolCallId } : {}),
 		};
 	}
 	if (data.action === "turn-started" || data.action === "turn-settled") {

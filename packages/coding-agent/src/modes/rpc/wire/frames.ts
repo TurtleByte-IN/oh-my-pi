@@ -24,6 +24,12 @@ export const SUBAGENT_LINEAGE = {
 	),
 } as const;
 
+/** `parentToolCallId` on subagent frames and `get_subagents` snapshots. */
+export const PARENT_TOOL_CALL_ID = doc(
+	"string",
+	"Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn.",
+);
+
 export const frameDefs = {
 	ReadyEvent: doc(
 		{
@@ -81,7 +87,7 @@ export const frameDefs = {
 		"description?": "string",
 		status: "SubagentLifecycleStatus",
 		"sessionFile?": "string",
-		"parentToolCallId?": "string",
+		"parentToolCallId?": PARENT_TOOL_CALL_ID,
 		...SUBAGENT_LINEAGE,
 		index: "number.integer",
 		"detached?": doc("boolean", "The subagent runs as a detached background job."),
@@ -91,7 +97,7 @@ export const frameDefs = {
 		agent: "string",
 		agentSource: "AgentSource",
 		task: "string",
-		"parentToolCallId?": "string",
+		"parentToolCallId?": PARENT_TOOL_CALL_ID,
 		...SUBAGENT_LINEAGE,
 		"assignment?": "string",
 		progress: doc(JSON_OBJECT, "Raw `AgentProgress` record."),

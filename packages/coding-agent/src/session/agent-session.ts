@@ -6770,6 +6770,11 @@ export class AgentSession implements SettingsScope {
 		return this.#tools.getAllToolInfos();
 	}
 
+	/** Whether this session can enter vibe mode: subagent sessions have no vibe tools. */
+	canActivateVibeTools(): boolean {
+		return this.#tools.canActivateVibeTools();
+	}
+
 	/** Installs and activates the ephemeral vibe tool set. */
 	activateVibeTools(baseToolNames: string[]): Promise<void> {
 		return this.#tools.activateVibeTools(baseToolNames);

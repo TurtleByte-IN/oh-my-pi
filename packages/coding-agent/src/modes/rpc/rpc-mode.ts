@@ -94,6 +94,7 @@ import {
 import { RpcSessionEventForwarder } from "./rpc-session-events";
 import { isRpcSessionSettled, RpcSessionSettleWatcher, watchedScheduledTurnProbe } from "./rpc-session-settle";
 import { RpcSubagentRegistry, readRpcSubagentTranscript, resolveOwnedLiveSubagent } from "./rpc-subagents";
+import { RpcVibeController } from "./rpc-vibe";
 import { RPC_CONTRACT_VERSION } from "./wire/contract";
 import type {
 	RpcAbortAndRestoreQueueResult,
@@ -1480,8 +1481,13 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	const extensionUserMessageTracker = new RpcExtensionUserMessageTracker();
 	const wordPredictor = new RpcWordPredictor();
 	const btw = new RpcBtwController(session, output);
+	const vibeController = new RpcVibeController(session);
+	// A switch detaches the current session's vibe workers before the transcript is replaced.
+	session.setSessionBeforeSwitchReconciler(() => vibeController.quiesceForSessionSwitch());
 	// A continuation abandoned while waiting leaves nothing to end the activity stretch: re-check settlement.
-	const goalController = new RpcGoalController(session, () => void settleWatcher.check());
+	// Vibe is left before and reattached after each goal reconcile, and re-checked after a change
+	// that kept the session.
+	const goalController = new RpcGoalController(session, () => void settleWatcher.check(), vibeController);
 	// A scheduled or held goal turn will start a turn: every settle report treats it as busy,
 	// and any report of "not settled" for that reason is later closed by `session_settled`.
 	const goalTurnScheduled = watchedScheduledTurnProbe(
@@ -2207,6 +2213,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 					})),
 					contextUsage: session.getContextUsage(),
 					goal: session.getGoalModeState() ?? null,
+					vibeModeEnabled: vibeController.enabled,
 				};
 				return success(id, "get_state", state);
 			}
@@ -2239,6 +2246,20 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 					return success(id, "goal", await goalController.handle(command));
 				} catch (goalError) {
 					return error(id, "goal", goalError instanceof Error ? goalError.message : String(goalError));
+				}
+			}
+
+			case "set_vibe_mode": {
+				// A truthy non-boolean must not toggle the mode.
+				if (typeof command.enabled !== "boolean") {
+					return error(id, "set_vibe_mode", "set_vibe_mode requires boolean enabled");
+				}
+				// A goal exit or a reattach queued by the last turn or session change lands first.
+				await goalController.settled();
+				try {
+					return success(id, "set_vibe_mode", await vibeController.set(command.enabled));
+				} catch (vibeError) {
+					return error(id, "set_vibe_mode", vibeError instanceof Error ? vibeError.message : String(vibeError));
 				}
 			}
 

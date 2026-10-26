@@ -59,6 +59,7 @@ import type {
 	RpcSubagentSnapshot,
 	RpcSubagentSubscriptionLevel,
 } from "./rpc-types";
+import type { RpcVibeModeResult } from "./rpc-vibe";
 
 /** Distributive Omit that works with union types */
 type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : never;
@@ -827,6 +828,7 @@ export class RpcClient {
 			slowModeSupported: state.slowModeSupported === true,
 			slowModeEnabled: state.slowModeEnabled === true,
 			goal: state.goal ?? null,
+			vibeModeEnabled: state.vibeModeEnabled === true,
 			tokensPerSecond:
 				typeof state.tokensPerSecond === "number" && Number.isFinite(state.tokensPerSecond)
 					? state.tokensPerSecond
@@ -897,6 +899,16 @@ export class RpcClient {
 			objective: options?.objective,
 			token_budget: options?.tokenBudget,
 		});
+		return this.#getData(response);
+	}
+
+	/**
+	 * Turn vibe mode on or off, like `/vibe`. Idempotent. Entering rejects while plan
+	 * or goal mode is on or when the session has no vibe tools; exiting aborts a
+	 * running turn and kills every worker session (`killed` counts them).
+	 */
+	async setVibeMode(enabled: boolean): Promise<RpcVibeModeResult> {
+		const response = await this.#send({ type: "set_vibe_mode", enabled });
 		return this.#getData(response);
 	}
 

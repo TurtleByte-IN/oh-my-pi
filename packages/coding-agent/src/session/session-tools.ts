@@ -811,6 +811,11 @@ export class SessionTools {
 		return extensionRunner ? new ExtensionToolWrapper(wrapped, extensionRunner) : wrapped;
 	}
 
+	/** Whether {@link activateVibeTools} can install the vibe tools: only top-level sessions have them. */
+	canActivateVibeTools(): boolean {
+		return this.#createVibeTools !== undefined;
+	}
+
 	/** Installs and activates the ephemeral vibe tool set. */
 	activateVibeTools(baseToolNames: string[]): Promise<void> {
 		return this.runToolRegistryMutation(async () => {

@@ -2559,6 +2559,8 @@ type SessionState struct {
 	ContextUsage *ContextUsage    `json:"contextUsage,omitempty"`
 	// Current goal mode; null when the session has no goal.
 	Goal *GoalModeState `json:"goal"`
+	// Vibe mode is on: the session directs worker sessions through the `vibe_*` tools.
+	VibeModeEnabled bool `json:"vibeModeEnabled"`
 }
 
 func (v *SessionState) UnmarshalJSON(data []byte) error {
@@ -2597,6 +2599,7 @@ func (v *SessionState) decodeFrom(raw map[string]json.RawMessage) error {
 	d.defaulted("dumpTools", &out.DumpTools, `[]`)
 	d.optional("contextUsage", &out.ContextUsage)
 	d.defaulted("goal", &out.Goal, `null`)
+	d.defaulted("vibeModeEnabled", &out.VibeModeEnabled, `false`)
 	if d.err != nil {
 		return d.err
 	}
@@ -3170,8 +3173,9 @@ type SubagentSnapshot struct {
 	Assignment  *string        `json:"assignment,omitempty"`
 	SessionFile *string        `json:"sessionFile,omitempty"`
 	// Raw `AgentProgress` record.
-	Progress         map[string]json.RawMessage `json:"progress,omitempty"`
-	ParentToolCallID *string                    `json:"parentToolCallId,omitempty"`
+	Progress map[string]json.RawMessage `json:"progress,omitempty"`
+	// Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn.
+	ParentToolCallID *string `json:"parentToolCallId,omitempty"`
 	// Id of the subagent that spawned this one; null when the root session spawned it.
 	ParentID *string `json:"parentId"`
 	// Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.
@@ -4897,14 +4901,15 @@ func (v *SubagentLifecycleStatus) UnmarshalJSON(data []byte) error {
 }
 
 type SubagentLifecyclePayload struct {
-	ID               string                  `json:"id"`
-	Agent            string                  `json:"agent"`
-	AgentSource      AgentSource             `json:"agentSource"`
-	Status           SubagentLifecycleStatus `json:"status"`
-	Index            int64                   `json:"index"`
-	Description      *string                 `json:"description,omitempty"`
-	SessionFile      *string                 `json:"sessionFile,omitempty"`
-	ParentToolCallID *string                 `json:"parentToolCallId,omitempty"`
+	ID          string                  `json:"id"`
+	Agent       string                  `json:"agent"`
+	AgentSource AgentSource             `json:"agentSource"`
+	Status      SubagentLifecycleStatus `json:"status"`
+	Index       int64                   `json:"index"`
+	Description *string                 `json:"description,omitempty"`
+	SessionFile *string                 `json:"sessionFile,omitempty"`
+	// Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn.
+	ParentToolCallID *string `json:"parentToolCallId,omitempty"`
 	// Id of the subagent that spawned this one; null when the root session spawned it.
 	ParentID *string `json:"parentId"`
 	// Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.
@@ -4944,8 +4949,9 @@ type SubagentProgressPayload struct {
 	AgentSource AgentSource `json:"agentSource"`
 	Task        string      `json:"task"`
 	// Raw `AgentProgress` record.
-	Progress         map[string]json.RawMessage `json:"progress"`
-	ParentToolCallID *string                    `json:"parentToolCallId,omitempty"`
+	Progress map[string]json.RawMessage `json:"progress"`
+	// Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn.
+	ParentToolCallID *string `json:"parentToolCallId,omitempty"`
 	// Id of the subagent that spawned this one; null when the root session spawned it.
 	ParentID *string `json:"parentId"`
 	// Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.
@@ -7285,6 +7291,29 @@ func (v *SetSlowModeResult) decodeFrom(raw map[string]json.RawMessage) error {
 	return nil
 }
 
+type SetVibeModeResult struct {
+	// Whether vibe mode is on after the call.
+	Enabled bool `json:"enabled"`
+	// Worker sessions the call killed by exiting vibe mode; 0 otherwise.
+	Killed int64 `json:"killed"`
+}
+
+func (v *SetVibeModeResult) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "SetVibeModeResult", v.decodeFrom)
+}
+
+func (v *SetVibeModeResult) decodeFrom(raw map[string]json.RawMessage) error {
+	var out SetVibeModeResult
+	d := fieldDecoder{raw: raw, owner: "SetVibeModeResult"}
+	d.required("enabled", &out.Enabled)
+	d.required("killed", &out.Killed)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
 type SetAskDialogResult struct {
 	Enabled bool `json:"enabled"`
 }
@@ -8095,6 +8124,18 @@ type GoalCommand struct {
 func (c Commands) Goal(ctx context.Context, p GoalCommand) (GoalResult, error) {
 	var out GoalResult
 	err := c.call(ctx, "goal", p, 0, &out)
+	return out, err
+}
+
+// SetVibeModeCommand holds the parameters of "set_vibe_mode".
+type SetVibeModeCommand struct {
+	Enabled bool `json:"enabled"`
+}
+
+// SetVibeMode sends "set_vibe_mode": Turn vibe mode on or off with the lifecycle of the interactive `/vibe` command; idempotent.
+func (c Commands) SetVibeMode(ctx context.Context, p SetVibeModeCommand) (SetVibeModeResult, error) {
+	var out SetVibeModeResult
+	err := c.call(ctx, "set_vibe_mode", p, 0, &out)
 	return out, err
 }
 

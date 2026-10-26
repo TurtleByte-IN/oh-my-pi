@@ -3135,6 +3135,9 @@ pub struct SessionState {
 	/// Current goal mode; null when the session has no goal.
 	#[serde(default = "default_session_state_goal")]
 	pub goal: Option<GoalModeState>,
+	/// Vibe mode is on: the session directs worker sessions through the `vibe_*` tools.
+	#[serde(rename = "vibeModeEnabled", default = "default_session_state_vibe_mode_enabled")]
+	pub vibe_mode_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3396,6 +3399,7 @@ pub struct SubagentSnapshot {
 	/// Raw `AgentProgress` record.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub progress: Option<Map<String, Value>>,
+	/// Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn.
 	#[serde(rename = "parentToolCallId", default, skip_serializing_if = "Option::is_none")]
 	pub parent_tool_call_id: Option<String>,
 	/// Id of the subagent that spawned this one; null when the root session spawned it.
@@ -4216,6 +4220,7 @@ pub struct SubagentLifecyclePayload {
 	pub description: Option<String>,
 	#[serde(rename = "sessionFile", default, skip_serializing_if = "Option::is_none")]
 	pub session_file: Option<String>,
+	/// Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn.
 	#[serde(rename = "parentToolCallId", default, skip_serializing_if = "Option::is_none")]
 	pub parent_tool_call_id: Option<String>,
 	/// Id of the subagent that spawned this one; null when the root session spawned it.
@@ -4238,6 +4243,7 @@ pub struct SubagentProgressPayload {
 	pub task: String,
 	/// Raw `AgentProgress` record.
 	pub progress: Map<String, Value>,
+	/// Tool call that spawned the subagent: the `task` call, or for a vibe worker the `vibe_spawn` call, on every turn.
 	#[serde(rename = "parentToolCallId", default, skip_serializing_if = "Option::is_none")]
 	pub parent_tool_call_id: Option<String>,
 	/// Id of the subagent that spawned this one; null when the root session spawned it.
@@ -5385,6 +5391,19 @@ pub struct GoalParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetVibeModeParams {
+	pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetVibeModeResult {
+	/// Whether vibe mode is on after the call.
+	pub enabled: bool,
+	/// Worker sessions the call killed by exiting vibe mode; 0 otherwise.
+	pub killed: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetAskDialogParams {
 	pub enabled: bool,
 }
@@ -6227,6 +6246,10 @@ fn default_session_state_goal() -> Option<GoalModeState> {
 	serde_json::from_str("null").expect("valid wire default")
 }
 
+fn default_session_state_vibe_mode_enabled() -> bool {
+	serde_json::from_str("false").expect("valid wire default")
+}
+
 fn default_token_usage_reasoning() -> i64 {
 	serde_json::from_str("0").expect("valid wire default")
 }
@@ -6546,6 +6569,22 @@ impl Command for GoalCommand {
 
 	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
 		serde_json::from_value::<GoalResult>(data.unwrap_or_else(|| Value::Object(Map::new())))
+	}
+}
+
+/// Turn vibe mode on or off with the lifecycle of the interactive `/vibe` command; idempotent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetVibeModeCommand {
+	pub enabled: bool,
+}
+
+impl Command for SetVibeModeCommand {
+	const NAME: &'static str = "set_vibe_mode";
+	const TIMEOUT_MS: Option<u64> = None;
+	type Output = SetVibeModeResult;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<SetVibeModeResult>(data.unwrap_or_else(|| Value::Object(Map::new())))
 	}
 }
 

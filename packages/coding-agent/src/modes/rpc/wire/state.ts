@@ -6,7 +6,7 @@
  * omits them.
  */
 import { absentAs, doc, type WireDefs } from "./dsl";
-import { SUBAGENT_LINEAGE } from "./frames";
+import { PARENT_TOOL_CALL_ID, SUBAGENT_LINEAGE } from "./frames";
 
 const JSON_OBJECT = "Record<string, unknown>";
 
@@ -148,6 +148,10 @@ export const stateDefs = {
 		dumpTools: absentAs("ToolDescriptor[]", []),
 		"contextUsage?": "ContextUsage",
 		goal: absentAs(doc("GoalModeState | null", "Current goal mode; null when the session has no goal."), null),
+		vibeModeEnabled: absentAs(
+			doc("boolean", "Vibe mode is on: the session directs worker sessions through the `vibe_*` tools."),
+			false,
+		),
 	},
 
 	BashResult: {
@@ -269,7 +273,7 @@ export const stateDefs = {
 		"sessionFile?": "string",
 		lastUpdate: "number.integer",
 		"progress?": doc(JSON_OBJECT, "Raw `AgentProgress` record."),
-		"parentToolCallId?": "string",
+		"parentToolCallId?": PARENT_TOOL_CALL_ID,
 		...SUBAGENT_LINEAGE,
 	},
 	SubagentMessages: doc(
