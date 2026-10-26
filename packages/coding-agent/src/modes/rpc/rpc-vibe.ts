@@ -13,6 +13,7 @@ import { formatModelString } from "../../config/model-resolver";
 import type { AgentSession } from "../../session/agent-session";
 import type { SessionManager } from "../../session/session-manager";
 import { type VibeOwnerScope, type VibeParentSession, VibeSessionRegistry } from "../../vibe/runtime";
+import type { RpcOtherModes } from "./rpc-goal";
 
 export type RpcVibeSession = Pick<
 	AgentSession,
@@ -54,7 +55,7 @@ function journaledMode(sessionManager: Pick<SessionManager, "getBranchView">): s
 	return "none";
 }
 
-export class RpcVibeController {
+export class RpcVibeController implements RpcOtherModes {
 	readonly #session: RpcVibeSession;
 	/** Enabled tool set before vibe mode replaced it; restored on exit. */
 	#previousTools: string[] | undefined;
@@ -110,14 +111,22 @@ export class RpcVibeController {
 	}
 
 	/**
-	 * Leave the previous session's vibe mode behind and restore vibe mode journaled
-	 * in the current session (startup, new/switch/branch/open), as the TUI does on
-	 * resume. A change that kept the same worker scope (same session) leaves a
-	 * running vibe mode untouched. Run after the goal reconcile, which may restore
-	 * the previous session's pre-goal tool set.
+	 * After a session change (or at startup), before the goal reconcile: leave the
+	 * previous session's vibe mode, restoring its pre-vibe tools and detaching its
+	 * workers. A change that kept the session (a reload, a failed or cancelled
+	 * switch) keeps a running vibe mode.
 	 */
-	reconcile(): Promise<void> {
-		return this.#serialize(() => this.#reconcileOnce());
+	leave(): Promise<void> {
+		return this.#serialize(() => this.#leave());
+	}
+
+	/**
+	 * After the goal reconcile: rehydrate the current session's workers from its
+	 * journal (including workers a kept session's switch detached) and enter vibe
+	 * mode when the session journaled it, as the TUI does on resume.
+	 */
+	reattach(): Promise<void> {
+		return this.#serialize(() => this.#reattach());
 	}
 
 	#serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -185,34 +194,34 @@ export class RpcVibeController {
 		return killed;
 	}
 
-	async #reconcileOnce(): Promise<void> {
+	async #leave(): Promise<void> {
 		const session = this.#session;
 		const scopeAlreadySuspended = this.#scopeSuspendedForSwitch;
 		this.#scopeSuspendedForSwitch = false;
-		const mode = journaledMode(session.sessionManager);
-		const parent = this.#parentSession();
-		const registry = VibeSessionRegistry.global();
 		const ownerScope = this.#ownerScope;
-		const targetScope = registry.ownerScope(parent);
-		const wasEnabled = this.enabled;
-		// Same session (a reload or no-op change): the running vibe mode and its workers stay.
-		const preserve =
-			wasEnabled &&
-			mode === "vibe" &&
-			ownerScope?.ownerId === targetScope.ownerId &&
+		if (!this.enabled || !ownerScope) return;
+		const registry = VibeSessionRegistry.global();
+		const targetScope = registry.ownerScope(this.#parentSession());
+		// Same session (a reload or no-op change): the running vibe mode stays.
+		const sameSession =
+			journaledMode(session.sessionManager) === "vibe" &&
+			ownerScope.ownerId === targetScope.ownerId &&
 			ownerScope.parentSessionId === targetScope.parentSessionId &&
 			ownerScope.parentSessionFile === targetScope.parentSessionFile;
-		if (wasEnabled && !preserve) {
-			// A session change keeps the process's live tool set (it is not per session), so the
-			// pre-vibe snapshot is restored, as the goal reconcile restores its pre-goal set.
-			await session.deactivateVibeTools(this.#previousTools ?? []);
-			session.setVibeModeState(undefined);
-			this.#previousTools = undefined;
-			this.#ownerScope = undefined;
-			if (ownerScope && !scopeAlreadySuspended) await registry.suspendScope(ownerScope, session.asyncJobManager);
-		}
-		await registry.rehydrate(parent);
-		if (mode !== "vibe" || preserve) return;
+		if (sameSession) return;
+		// A session change keeps the process's live tool set (it is not per session), so
+		// the pre-vibe snapshot is restored.
+		await session.deactivateVibeTools(this.#previousTools ?? []);
+		session.setVibeModeState(undefined);
+		this.#previousTools = undefined;
+		this.#ownerScope = undefined;
+		if (!scopeAlreadySuspended) await registry.suspendScope(ownerScope, session.asyncJobManager);
+	}
+
+	async #reattach(): Promise<void> {
+		const session = this.#session;
+		await VibeSessionRegistry.global().rehydrate(this.#parentSession());
+		if (this.enabled || journaledMode(session.sessionManager) !== "vibe") return;
 		try {
 			await this.#enter({ persistModeChange: false });
 		} catch (error) {

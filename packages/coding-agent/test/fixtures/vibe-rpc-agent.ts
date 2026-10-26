@@ -13,8 +13,9 @@ import { EventBus } from "@oh-my-pi/pi-coding-agent/utils/event-bus";
 // Real SDK session (vibe tools registered as in production), RPC dispatch and vibe worker
 // runtime; only the model is scripted. One mock model serves the director and its workers.
 // Director: a prompt containing "spawn a worker" calls `vibe_spawn` (tool call id `spawn-call`)
-// for worker `Worker1`; "message the worker" calls `vibe_send` on it; anything else gets text.
-// Workers (the sessions offered `yield`) yield a result.
+// for worker `Worker1`; "spawn a slow worker" does the same with a worker turn that runs for
+// 60s, then calls `vibe_wait` on it; "message the worker" calls `vibe_send` on it; anything
+// else gets text. Workers (the sessions offered `yield`) yield a result.
 // VIBE_RPC_PLAN="1": the session starts in plan mode.
 // VIBE_RPC_SUBAGENT="1": the session is built as a subagent (task depth 1), so it has no vibe tools.
 // VIBE_RPC_PERSIST="1": a file-backed session under <cwd>/sessions.
@@ -25,34 +26,56 @@ authStorage.keys.setRuntime("mock", "test-key");
 authStorage.keys.setRuntime("anthropic", "test-key");
 registerMockApi("test/vibe-rpc-agent");
 
-function lastUserText(context: Context): string {
-	const last = context.messages.at(-1);
-	if (last?.role !== "user") return "";
-	if (typeof last.content === "string") return last.content;
-	return last.content.map(part => (part.type === "text" ? part.text : "")).join("");
+/** Text of the newest user message in the conversation. */
+function latestUserText(context: Context): string {
+	const message = context.messages.findLast(candidate => candidate.role === "user");
+	if (!message) return "";
+	if (typeof message.content === "string") return message.content;
+	return message.content.map(part => (part.type === "text" ? part.text : "")).join("");
+}
+
+function spawnCall(prompt: string): MockResponse {
+	return {
+		content: [
+			{
+				type: "toolCall",
+				id: "spawn-call",
+				name: "vibe_spawn",
+				arguments: { cli: "fast", name: "Worker1", prompt },
+			},
+		],
+	};
 }
 
 function reply(context: Context): MockResponse {
 	const tools = new Set((context.tools ?? []).map(tool => tool.name));
-	const lastRole = context.messages.at(-1)?.role;
+	const last = context.messages.at(-1);
+	const text = latestUserText(context);
 	if (tools.has("yield")) {
-		if (lastRole === "toolResult") return { content: ["done"] };
-		return { content: [{ type: "toolCall", name: "yield", arguments: { type: "result", data: "worker done" } }] };
-	}
-	if (lastRole === "toolResult") return { content: ["ok"] };
-	const text = lastUserText(context);
-	if (text.includes("spawn a worker") && tools.has("vibe_spawn")) {
-		return {
-			content: [
-				{
-					type: "toolCall",
-					id: "spawn-call",
-					name: "vibe_spawn",
-					arguments: { cli: "fast", name: "Worker1", prompt: "count the files" },
-				},
-			],
+		if (last?.role === "toolResult") return { content: ["done"] };
+		const response: MockResponse = {
+			content: [{ type: "toolCall", name: "yield", arguments: { type: "result", data: "worker done" } }],
 		};
+		return text.includes("slow work") ? { ...response, delayMs: 60_000 } : response;
 	}
+	if (last?.role === "toolResult") {
+		if (last.toolName === "vibe_spawn" && text.includes("spawn a slow worker")) {
+			return {
+				content: [
+					{
+						type: "toolCall",
+						id: "wait-call",
+						name: "vibe_wait",
+						arguments: { sessions: ["Worker1"], timeout: 60 },
+					},
+				],
+			};
+		}
+		return { content: ["ok"] };
+	}
+	if (last?.role !== "user") return { content: ["pong"] };
+	if (text.includes("spawn a slow worker") && tools.has("vibe_spawn")) return spawnCall("slow work");
+	if (text.includes("spawn a worker") && tools.has("vibe_spawn")) return spawnCall("count the files");
 	if (text.includes("message the worker") && tools.has("vibe_send")) {
 		return {
 			content: [

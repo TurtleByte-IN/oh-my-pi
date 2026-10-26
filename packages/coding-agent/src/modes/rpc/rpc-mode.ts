@@ -1485,12 +1485,9 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	// A switch detaches the current session's vibe workers before the transcript is replaced.
 	session.setSessionBeforeSwitchReconciler(() => vibeController.quiesceForSessionSwitch());
 	// A continuation abandoned while waiting leaves nothing to end the activity stretch: re-check settlement.
-	// Vibe reattaches in the goal reconcile step, after any previous pre-goal tool set is restored.
-	const goalController = new RpcGoalController(
-		session,
-		() => void settleWatcher.check(),
-		() => vibeController.reconcile(),
-	);
+	// Vibe is left before and reattached after each goal reconcile, and re-checked after a change
+	// that kept the session.
+	const goalController = new RpcGoalController(session, () => void settleWatcher.check(), vibeController);
 	// A scheduled or held goal turn will start a turn: every settle report treats it as busy,
 	// and any report of "not settled" for that reason is later closed by `session_settled`.
 	const goalTurnScheduled = watchedScheduledTurnProbe(

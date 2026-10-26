@@ -620,7 +620,7 @@ When the agent completes the goal, the goal tool is removed again and
 `set_vibe_mode` turns vibe mode on or off with the lifecycle of the interactive
 `/vibe` command. In vibe mode the agent directs persistent `fast`/`good` worker
 sessions through the `vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill` and
-`vibe_list` tools. Contract `1.7.0`; older servers answer
+`vibe_list` tools. Contract `1.8.0`; older servers answer
 `Unknown command: set_vibe_mode`.
 
 ```json
@@ -649,8 +649,10 @@ a new session fail with `Cannot … while vibe mode is active. Exit vibe mode fi
 `switch_session`, `branch` and an `open_session` that resumes another session are
 allowed: the current session's workers are detached (not killed) and its vibe mode
 is left, and vibe mode is restored if the target session journaled it, as the TUI
-does on resume. A process started on a session journaled in vibe mode starts in vibe
-mode.
+does on resume. Reloading the open session, or a switch that is cancelled or fails,
+keeps vibe mode on and brings the workers back from the session's journal. A process
+started on a session journaled in vibe mode starts in vibe mode; workers still
+running when a process exits are detached, not killed, and come back the same way.
 
 Each worker turn reports `subagent_lifecycle` and `subagent_progress` frames (at
 subscription level `"progress"` or `"events"`) whose `parentToolCallId` is the id of

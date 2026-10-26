@@ -53,6 +53,14 @@ export type RpcGoalSession = Pick<
 	| "queuedMessageCount"
 >;
 
+/** Session modes other than goal (vibe) that reattach with each goal reconcile. */
+export interface RpcOtherModes {
+	/** Leave the previous session's mode; runs before the goal reconcile. */
+	leave(): Promise<void>;
+	/** Reattach the current session's mode; runs after the goal reconcile. */
+	reattach(): Promise<void>;
+}
+
 export class RpcGoalController {
 	readonly #session: RpcGoalSession;
 	/** Active tool set before goal mode added `goal`; restored when the goal ends. */
@@ -91,19 +99,18 @@ export class RpcGoalController {
 	 */
 	#changeOverlappedReconcile = false;
 	readonly #onContinuationDropped: (() => void) | undefined;
-	readonly #reconcileOtherModes: (() => Promise<void>) | undefined;
+	readonly #otherModes: RpcOtherModes | undefined;
 
 	/**
 	 * @param onContinuationDropped called when a pending continuation is abandoned
 	 *   (a gate closed while it waited), so settle reporting can re-check.
-	 * @param reconcileOtherModes reattaches the session's other modes (vibe) after
-	 *   each goal reconcile, in the same serialized step: after the previous
-	 *   session's pre-goal tool set is restored, and before {@link settled} resolves.
+	 * @param otherModes the session's other modes (vibe), reconciled in the same
+	 *   serialized step as the goal and before {@link settled} resolves.
 	 */
-	constructor(session: RpcGoalSession, onContinuationDropped?: () => void, reconcileOtherModes?: () => Promise<void>) {
+	constructor(session: RpcGoalSession, onContinuationDropped?: () => void, otherModes?: RpcOtherModes) {
 		this.#session = session;
 		this.#onContinuationDropped = onContinuationDropped;
-		this.#reconcileOtherModes = reconcileOtherModes;
+		this.#otherModes = otherModes;
 	}
 
 	/**
@@ -188,7 +195,15 @@ export class RpcGoalController {
 		this.#sessionBeforeChange = undefined;
 		this.#heldDuringChange = false;
 		try {
-			if (switched && this.#reconcilesPending > 0) {
+			if (!switched) {
+				// A reload, or a cancelled or failed switch, kept the session, but the switch
+				// may already have detached vibe workers: other modes re-check it.
+				const reattach = this.#reconcileOtherModesOnly();
+				// Do not wait behind a running reconcile (see below).
+				if (this.#reconcilesPending > 0) void reattach.catch(reportControllerError);
+				else await reattach;
+				this.#scheduleContinuation();
+			} else if (this.#reconcilesPending > 0) {
 				// A reconcile is running, possibly the one whose extension notification
 				// started this change: queue behind it without waiting, or the two would
 				// wait on each other. Settlement is re-checked once it has run.
@@ -197,9 +212,10 @@ export class RpcGoalController {
 					.catch(reportControllerError)
 					.finally(() => this.#onContinuationDropped?.());
 				return;
+			} else {
+				await this.reconcile({ preserveActiveGoal: true });
+				this.#scheduleContinuation();
 			}
-			if (switched) await this.reconcile({ preserveActiveGoal: true });
-			this.#scheduleContinuation();
 		} catch (error) {
 			reportControllerError(error);
 		}
@@ -330,16 +346,31 @@ export class RpcGoalController {
 	async reconcile(options?: { preserveActiveGoal?: boolean }): Promise<void> {
 		this.#reconcilesPending++;
 		const run = this.#reconcileTask.then(async () => {
+			// The previous session's vibe mode is left first, so the goal snapshots the
+			// pre-vibe tool set; the target's vibe mode reattaches after the goal.
+			await this.#otherModes?.leave();
 			try {
 				await this.#reconcileOnce(options);
 			} finally {
-				await this.#reconcileOtherModes?.();
+				await this.#otherModes?.reattach();
 			}
 		});
 		this.#reconcileTask = run.catch(reportControllerError).finally(() => {
 			this.#reconcilesPending--;
 		});
 		await run;
+	}
+
+	/** Leave and reattach only the other modes, in the reconcile queue; the goal is untouched. */
+	#reconcileOtherModesOnly(): Promise<void> {
+		const otherModes = this.#otherModes;
+		if (!otherModes) return Promise.resolve();
+		const run = this.#reconcileTask.then(async () => {
+			await otherModes.leave();
+			await otherModes.reattach();
+		});
+		this.#reconcileTask = run.catch(reportControllerError);
+		return run;
 	}
 
 	async #reconcileOnce(options: { preserveActiveGoal?: boolean } | undefined): Promise<void> {

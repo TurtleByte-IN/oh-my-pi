@@ -221,7 +221,7 @@
     },
     "packages/rpc-contract": {
       "name": "@oh-my-pi/rpc-contract",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "devDependencies": {
         "@types/bun": "catalog:",
       },
