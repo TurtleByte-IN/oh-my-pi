@@ -35,11 +35,26 @@ No platform is dropped. Bun cross-compiles every binary on Linux, and Bazel cros
 native addon on Linux. The per-platform runners only run `--version` and `--smoke-test` on the
 finished binary.
 
-The fork has no Apple Developer ID secrets. Its macOS binaries are therefore signed ad hoc, with
-the same entitlements upstream uses (see
+## macOS signing
+
+The fork has no Apple Developer ID secrets yet (blocker B-001). Until they exist, its macOS
+binaries are signed ad hoc, with the same entitlements upstream uses (see
 [`macos-signing-notarization.md`](./macos-signing-notarization.md)). Gatekeeper does not check
 files fetched with `curl` or by Ompanel's downloader, so the ad hoc signature does not block
 those installs.
+
+Developer ID signing and notarization only ever happen for a real `v*` tag release:
+
+- The signing step in `release_binary` receives the `APPLE_*` secrets only when `is-release` is
+  true. A release dry run, on any ref including a tag, always signs ad hoc, and `release_smoke`
+  then skips the Developer ID assertion.
+- When you add the five `APPLE_*` secrets, store them as secrets of the `release` GitHub
+  Environment, never as repository secrets. That environment already exists, and its deployment
+  policy admits only `v*` tags. In the fork, `release_binary` and `release_smoke` enter the
+  environment only during a tag release, so no other ref can read the secrets.
+- The repository ruleset "Release tags v*" lets only repository and organization admins create,
+  update or delete `v*` tags. Without that ruleset, anyone with write access could push a tag
+  and get signed binaries. Keep the ruleset active.
 
 ## Release assets
 
@@ -47,7 +62,8 @@ Every release carries these assets:
 
 - the eight binaries above;
 - `omp-browser-relay-extension.zip`, `LICENSE` and `THIRD-PARTY-NOTICES.txt`;
-- one `<asset>.sha256` file for each of those, in `sha256sum` format;
+- one `<asset>.sha256` file for each of those, in `sha256sum` format (fork only; upstream
+  releases keep only `SHA256SUMS.txt`);
 - `SHA256SUMS.txt`, which lists the checksum of every asset above.
 
 To verify a single binary, download it together with its `.sha256` file and run
@@ -55,7 +71,9 @@ To verify a single binary, download it together with its `.sha256` file and run
 
 ## Cutting a release
 
-Fork releases are tagged `v<upstream-version>-ompanel.<n>`. Cut the tag from fork `main` and push
+Fork release tags are `v<upstream-version>-ompanel.<n>`. Every release tag must match
+`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`; `release_metadata` fails the run on any other
+tag. Only an admin can push the tag (see the tag ruleset above). Cut it from fork `main` and push
 it on its own:
 
 ```bash
@@ -63,10 +81,18 @@ git tag v18.12.6-ompanel.1 origin/main
 git push origin v18.12.6-ompanel.1
 ```
 
-The tag push runs the whole workflow on the tag ref. It runs the validation gate, the binary
-build, the smoke tests, `release_assets`, and then `release_github`, which publishes the GitHub
-Release. In the fork, a tagged commit on `main` does not count as a release, so a push of `main`
-and the tag together releases only once.
+The tag push starts `.github/workflows/fork-release.yml`, which runs `ci.yml` as a reusable
+workflow on the tag ref. In `can1357/oh-my-pi` that caller job is skipped, so an upstream tag
+push runs nothing; upstream keeps releasing from its atomic main+tag push. The run goes through
+the validation gate, the binary build, the smoke tests and `release_assets`, then
+`release_github`. Just before it publishes, `release_github` checks two things and fails if
+either is false:
+
+- the tag still points at the commit this run built (it was not moved during the run);
+- that commit is reachable from `main`.
+
+In the fork, a tagged commit on `main` does not count as a release, so pushing `main` and the
+tag together releases only once.
 
 These jobs run only in `can1357/oh-my-pi`, so the fork never publishes to upstream's channels:
 
