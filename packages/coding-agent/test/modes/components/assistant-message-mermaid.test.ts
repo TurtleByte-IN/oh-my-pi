@@ -201,8 +201,9 @@ describe("AssistantMessageComponent transcript lifecycle", () => {
 });
 
 // Fails on the TurtleByte-IN fork's GitHub-hosted CI only (passes locally): tolerated by name per
-// the Ompanel program BASELINE.md "Fork CI" section, so it is skipped on GitHub Actions.
-const itLocalOnly = it.skipIf(process.env.GITHUB_ACTIONS === "true");
+// the Ompanel program BASELINE.md "Fork CI" section, so it is skipped on GitHub-hosted runners
+// (RUNNER_ENVIRONMENT; the CI test runner clears GITHUB_ACTIONS).
+const itLocalOnly = it.skipIf(process.env.RUNNER_ENVIRONMENT === "github-hosted");
 
 describe("AssistantMessageComponent mermaid markdown", () => {
 	itLocalOnly("renders fenced Mermaid ASCII without terminal image protocol", () => {

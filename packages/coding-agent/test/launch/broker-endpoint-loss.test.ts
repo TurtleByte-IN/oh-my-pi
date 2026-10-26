@@ -31,8 +31,9 @@ function startBroker(projectDir: string, runtimeDir: string, onListening: () => 
 }
 
 // Timing-sensitive; flakes on the TurtleByte-IN fork's GitHub-hosted CI. Tolerated by name per the
-// Ompanel program BASELINE.md "Fork CI" section, so it is skipped on GitHub Actions.
-const itLocalOnly = it.skipIf(process.env.GITHUB_ACTIONS === "true");
+// Ompanel program BASELINE.md "Fork CI" section, so it is skipped on GitHub-hosted runners
+// (RUNNER_ENVIRONMENT; the CI test runner clears GITHUB_ACTIONS).
+const itLocalOnly = it.skipIf(process.env.RUNNER_ENVIRONMENT === "github-hosted");
 
 describe.skipIf(process.platform === "win32")("daemon broker runtime dir loss", () => {
 	itLocalOnly(

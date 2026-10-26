@@ -66,8 +66,9 @@ afterEach(() => {
 
 // "kills and releases the client terminal when the caller aborts" is timing-sensitive and flakes on
 // the TurtleByte-IN fork's GitHub-hosted CI. Tolerated by name per the Ompanel program BASELINE.md
-// "Fork CI" section, so it is skipped on GitHub Actions.
-const itLocalOnly = it.skipIf(process.env.GITHUB_ACTIONS === "true");
+// "Fork CI" section, so it is skipped on GitHub-hosted runners (RUNNER_ENVIRONMENT; the CI test
+// runner clears GITHUB_ACTIONS).
+const itLocalOnly = it.skipIf(process.env.RUNNER_ENVIRONMENT === "github-hosted");
 
 describe("BashTool ACP terminal routing", () => {
 	it("emits a live terminal update but releases it before the completed result", async () => {

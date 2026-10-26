@@ -30,9 +30,10 @@ where it never runs. A new validation job must be added to the gate's `needs`; n
 change is needed. Pull requests run CI without a path filter, so every PR reports the gate.
 
 Four upstream coding-agent tests flake only on GitHub-hosted runners and are skipped there by
-name (`skipIf(process.env.GITHUB_ACTIONS === "true")`), still running locally: Mermaid ASCII
-rendering, the broker runtime-dir-loss handover, the ACP terminal abort, and the browser
-mid-goto cancel.
+name (`skipIf(process.env.RUNNER_ENVIRONMENT === "github-hosted")`; `scripts/ci-test-ts.ts`
+clears `GITHUB_ACTIONS` for test processes), still running locally and on self-hosted runners:
+Mermaid ASCII rendering, the broker runtime-dir-loss handover, the ACP terminal abort, and the
+browser mid-goto cancel.
 
 ## Platforms
 

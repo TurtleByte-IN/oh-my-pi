@@ -175,8 +175,9 @@ test("hands any waitUntil other than load/domcontentloaded to Puppeteer unchange
 
 // "stops the page load when a run is cancelled mid-goto" is timing-sensitive and flakes on the
 // TurtleByte-IN fork's GitHub-hosted CI. Tolerated by name per the Ompanel program BASELINE.md
-// "Fork CI" section, so it is skipped on GitHub Actions.
-const testLocalOnly = test.skipIf(process.env.GITHUB_ACTIONS === "true");
+// "Fork CI" section, so it is skipped on GitHub-hosted runners (RUNNER_ENVIRONMENT; the CI test
+// runner clears GITHUB_ACTIONS).
+const testLocalOnly = test.skipIf(process.env.RUNNER_ENVIRONMENT === "github-hosted");
 
 describe.skipIf(!CHROMIUM_AVAILABLE)("browser navigation, frames, dialogs, and tab listing", () => {
 	test("drives history and SPA navigation without reloading", async () => {
