@@ -10,6 +10,7 @@ import type {
 	RpcHostToolUpdate,
 } from "@oh-my-pi/pi-coding-agent/modes/rpc/rpc-types";
 import { toolReadsSkillUris } from "@oh-my-pi/pi-coding-agent/system-prompt";
+import { formatApprovalPrompt } from "@oh-my-pi/pi-coding-agent/tools/approval";
 import { removeWithRetries } from "@oh-my-pi/pi-utils";
 
 const tempPaths: string[] = [];
@@ -127,6 +128,21 @@ describe("RpcHostToolBridge", () => {
 		]);
 
 		expect(toolReadsSkillUris(tool)).toBe(true);
+	});
+
+	it("shows the call arguments in the approval prompt, so a user never approves blind", () => {
+		const bridge = new RpcHostToolBridge(() => {});
+		const [tool] = bridge.setTools([
+			{
+				name: "terminal",
+				description: "Runs a command in the host's terminal",
+				parameters: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+			},
+		]);
+
+		const prompt = formatApprovalPrompt(tool, { command: "sudo rm -rf /var/cache/demo" });
+		expect(prompt).toContain("Allow tool: terminal");
+		expect(prompt).toContain("sudo rm -rf /var/cache/demo");
 	});
 });
 
