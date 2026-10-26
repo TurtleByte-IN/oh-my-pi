@@ -13,6 +13,8 @@ on:
    schedule:
       # Every six hours.
       - cron: "23 */6 * * *"
+   push:
+      branches: [chore/upstream-merge-automation]
    workflow_dispatch:
       inputs:
          tag:
@@ -46,7 +48,7 @@ jobs:
          UPSTREAM_REPO: can1357/oh-my-pi
          TAG_INPUT: ${{ inputs.tag }}
          # Scheduled runs have no inputs, so they are never dry runs.
-         DRY_RUN: ${{ inputs.dry_run == true }}
+         DRY_RUN: ${{ inputs.dry_run == true || github.event_name == 'push' }}
          # Optional token (contents, pull requests, issues, actions and
          # workflows write). Without it the run uses GITHUB_TOKEN, which cannot
          # push an upstream change to .github/workflows and whose PRs start no CI.
