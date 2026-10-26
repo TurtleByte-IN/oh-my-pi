@@ -85,3 +85,7 @@ gh workflow run ci.yml -R TurtleByte-IN/oh-my-pi --ref <branch> -f release_dry_r
 A dry run sets `build-release` without `is-release`. It runs the addon builds, `release_binary`,
 `release_smoke` and `release_assets`, and uploads the complete asset set as the `release-assets`
 workflow artifact. A dry run dispatched from a tag publishes nothing either.
+
+Without a cache, a release or dry run takes about 2.5 hours. Most of that is
+`native_addons_cross`, which builds seven addon targets one after another (2 h 22 min in run
+40252620252). The binary builds, smoke tests and asset assembly take about 4 minutes after that.
