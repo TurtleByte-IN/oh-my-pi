@@ -165,7 +165,13 @@ describe("launch without a terminal on stdin", () => {
 describe("mode-dependent guards defer to flag-value errors", () => {
 	it("starts rpc-ui with headless extensions instead of rejecting --no-ui", async () => {
 		using tempDir = TempDir.createSync("@omp-no-ui-rpc-ui-");
-		const run = await launchWithoutTerminal(tempDir, ["--mode", "rpc-ui", "--no-ui"]);
+		const run = await launchWithoutTerminal(tempDir, [
+			"--mode",
+			"rpc-ui",
+			"--approval-mode",
+			"always-ask",
+			"--no-ui",
+		]);
 
 		expect(run.stderr).not.toContain("--no-ui requires --mode rpc");
 		expect(run.exitCode, run.stderr).toBe(0);
@@ -192,6 +198,32 @@ describe("mode-dependent guards defer to flag-value errors", () => {
 
 		expect(run.exitCode, run.stderr).toBe(1);
 		expect(run.stderr).toContain("Error: --no-ui requires --mode rpc");
+	}, 30_000);
+
+	it("refuses to start rpc-ui without an explicit --approval-mode (exit 1)", async () => {
+		using tempDir = TempDir.createSync("@omp-rpc-ui-no-approval-");
+		const run = await launchWithoutTerminal(tempDir, ["--mode", "rpc-ui"]);
+
+		expect(run.exitCode, run.stderr).toBe(1);
+		expect(run.stderr).toContain("Error: --mode rpc-ui requires --approval-mode");
+		expect(run.stdout).not.toContain('"ready"');
+	}, 30_000);
+
+	it("reports an invalid --approval-mode (exit 2) before requiring one for rpc-ui", async () => {
+		using tempDir = TempDir.createSync("@omp-rpc-ui-bad-approval-");
+		const run = await launchWithoutTerminal(tempDir, ["--mode", "rpc-ui", "--approval-mode", "sometimes"]);
+
+		expect(run.exitCode, run.stderr).toBe(2);
+		expect(run.stderr).toContain('Error: Invalid --approval-mode value: "sometimes"');
+		expect(run.stderr).not.toContain("requires --approval-mode");
+	}, 30_000);
+
+	it("keeps plain rpc mode starting without --approval-mode", async () => {
+		using tempDir = TempDir.createSync("@omp-rpc-no-approval-");
+		const run = await launchWithoutTerminal(tempDir, ["--mode", "rpc"]);
+
+		expect(run.stderr).not.toContain("requires --approval-mode");
+		expect(run.exitCode, run.stderr).toBe(0);
 	}, 30_000);
 });
 

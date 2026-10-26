@@ -313,6 +313,8 @@ describe("ACP lazy startup", () => {
 						noLsp: true,
 						noExtensions: true,
 						sessionDir: cwd,
+						// rpc-ui refuses to start without an explicit approval mode.
+						...(mode === "rpc-ui" ? { approvalMode: "yolo" as const } : {}),
 					},
 					[],
 					{

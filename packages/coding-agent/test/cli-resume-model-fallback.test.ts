@@ -78,6 +78,7 @@ describe("headless startup resume", () => {
 				);
 				const rpc = mode === "rpc" || mode === "rpc-ui";
 				const args = mode === "print" ? ["-p"] : ["--mode", mode];
+				if (mode === "rpc-ui") args.push("--approval-mode", "yolo");
 				if (!rpc) args.push("Continue the previous turn.");
 				const proc = Bun.spawn(
 					[

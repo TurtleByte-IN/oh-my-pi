@@ -17,6 +17,10 @@
 - Anthropic web search and Files API uploads follow `PI_ANTHROPIC_API_VERSION=2026-10-21`; web search omits `temperature` under that version ([#16706](https://github.com/can1357/oh-my-pi/pull/16706) by [@H4vC](https://github.com/H4vC))
 - llama.cpp auto-discovery now also finds local servers on llama-server's new default port 9931 when nothing answers on 8080 ([#16675](https://github.com/can1357/oh-my-pi/pull/16675) by [@bartbroere](https://github.com/bartbroere))
 
+### Changed
+
+- `--mode rpc-ui` refuses to start (exit code 1) without an explicit `--approval-mode`, so a GUI host never inherits the `yolo` default by omission; other modes and the default itself are unchanged ([#46](https://github.com/TurtleByte-IN/oh-my-pi/issues/46))
+
 ### Fixed
 
 - Fixed approval prompts for RPC host tools (`set_host_tools`) showing only `Allow tool: <name>`, so the user approved without seeing the command; they now list the call's arguments, as MCP tool prompts do ([#37](https://github.com/TurtleByte-IN/oh-my-pi/issues/37))

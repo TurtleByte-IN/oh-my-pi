@@ -26,6 +26,8 @@ Configure with `tools.approvalMode`:
 
 `--approval-mode <mode>` overrides the configured mode for the session. `--auto-approve` and `--yolo` force yolo execution even when an explicit `--approval-mode` is also supplied; tool/user denies and explicit tool prompt policies still apply.
 
+`--mode rpc-ui` requires `--approval-mode`: without it the process writes an error to stderr and exits with code 1 before reading stdin or loading extensions. A GUI host must choose the mode itself rather than inherit the `yolo` default; `--auto-approve`/`--yolo` alone do not satisfy the requirement. Other modes, including plain `--mode rpc`, are unchanged.
+
 ### Ask and remember (`always-ask-cached`)
 
 Ask and remember prompts like `always-ask`, and also before a tool reads a file it has not been granted. Its prompts can remember what the call touched:
