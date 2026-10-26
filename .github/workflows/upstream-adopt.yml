@@ -6,8 +6,9 @@ name: Upstream tag adoption
 # runner and the RPC contract suite runs on the result. Only when it is green is
 # `chore/upstream-<tag>` pushed and an adoption PR opened; otherwise an issue
 # records why the tag was skipped. A PR opened with GITHUB_TOKEN starts no
-# `pull_request` workflows, so this workflow dispatches `ci.yml` on the branch;
-# that run reports the required `CI gate` on the PR. See docs/fork-release.md.
+# `pull_request` workflows, so this workflow dispatches `ci.yml` on the branch,
+# waits for it and posts its result as the required `CI gate` status. See
+# docs/fork-release.md.
 
 on:
    schedule:
@@ -36,12 +37,15 @@ jobs:
       name: Adopt upstream tag
       if: github.repository != 'can1357/oh-my-pi'
       runs-on: ubuntu-22.04
-      timeout-minutes: 30
+      # Includes waiting for the dispatched ci.yml run, which builds the
+      # native addons from source without a cache (well over an hour).
+      timeout-minutes: 330
       permissions:
          contents: write # push the adoption branch
          pull-requests: write # open the adoption PR, close superseded ones
          issues: write # skip issues, the label
          actions: write # dispatch ci.yml on the adoption branch
+         statuses: write # report the dispatched CI result as `CI gate`
       env:
          UPSTREAM_REPO: can1357/oh-my-pi
          TAG_INPUT: ${{ inputs.tag }}
@@ -53,6 +57,7 @@ jobs:
          USE_PAT: ${{ secrets.UPSTREAM_MERGE_TOKEN != '' }}
          GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
          LABEL: upstream-merge
+         CI_CONTEXT: CI gate
       steps:
          - uses: actions/checkout@v4
            with:
@@ -172,6 +177,7 @@ jobs:
            run: OMP_RPC_CONTRACT_BASE_REF=origin/main bun run ci:test:rpc-contract
 
          - name: Open the adoption PR or a skip issue
+           id: open
            if: steps.pick.outputs.candidate == 'true' && !cancelled()
            shell: bash
            env:
@@ -246,7 +252,7 @@ jobs:
                 if [[ "$USE_PAT" == true ]]; then
                   echo "CI runs on this pull request as usual."
                 else
-                  echo "This PR was opened with \`GITHUB_TOKEN\`, which starts no \`pull_request\` workflows. The adoption workflow dispatched \`ci.yml\` on \`$BRANCH\` instead ([runs](https://github.com/$GITHUB_REPOSITORY/actions/workflows/ci.yml?query=branch%3A$BRANCH)); that run reports the required \`CI gate\` on this PR. A push to this branch by a person runs CI normally."
+                  echo "This PR was opened with \`GITHUB_TOKEN\`, which starts no \`pull_request\` workflows. The adoption workflow dispatched \`ci.yml\` on \`$BRANCH\` instead ([runs](https://github.com/$GITHUB_REPOSITORY/actions/workflows/ci.yml?query=branch%3A$BRANCH)), waits for it, and posts its result as the required \`CI gate\` status ($run_url). A push to this branch by a person runs CI normally."
                 fi
               } > "$body"
 
@@ -275,6 +281,11 @@ jobs:
 
               if [[ "$USE_PAT" != true ]]; then
                 gh workflow run ci.yml --ref "$BRANCH"
+                # The dispatched run's checks do not count for the PR, so the
+                # next step mirrors its result as a `CI gate` commit status.
+                gh api "repos/$GITHUB_REPOSITORY/statuses/$(git rev-parse HEAD)" -f state=pending \
+                  -f context="$CI_CONTEXT" -f description="ci.yml dispatched by the upstream adoption" >/dev/null
+                echo "ci_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
               fi
               if ! url="$(gh pr create --base main --head "$BRANCH" --title "$pr_title" \
                 --label "$LABEL" --body-file "$body")"; then
@@ -308,3 +319,43 @@ jobs:
                   fi
                 done
               summary "Opened $url from \`$BRANCH\`." "" "$(cat "$body")"
+
+         # Branch protection ignores the check runs of a workflow_dispatch run,
+         # so a PR opened with GITHUB_TOKEN would never get its required
+         # `CI gate`. This step waits for the dispatched ci.yml run and posts
+         # its result as a `CI gate` commit status from GITHUB_TOKEN (the GitHub
+         # Actions app, the source the required check expects).
+         - name: Report the dispatched CI result as CI gate
+           if: steps.open.outputs.ci_sha != ''
+           shell: bash
+           env:
+              GH_TOKEN: ${{ github.token }}
+              CI_BRANCH: ${{ steps.pick.outputs.branch }}
+              CI_SHA: ${{ steps.open.outputs.ci_sha }}
+           run: |
+              set -euo pipefail
+              id=""
+              for _ in $(seq 30); do
+                id="$(gh run list --workflow ci.yml --branch "$CI_BRANCH" --commit "$CI_SHA" \
+                  --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+                [[ -n "$id" ]] && break
+                sleep 10
+              done
+              status() {
+                gh api "repos/$GITHUB_REPOSITORY/statuses/$CI_SHA" -f state="$1" -f context="$CI_CONTEXT" \
+                  -f description="$2" ${3:+-f target_url="$3"} >/dev/null
+              }
+              if [[ -z "$id" ]]; then
+                status error "The dispatched ci.yml run was not found"
+                exit 1
+              fi
+              ci_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$id"
+              status pending "ci.yml dispatched by the upstream adoption" "$ci_url"
+              gh run watch "$id" --interval 60 >/dev/null || true
+              conclusion="$(gh run view "$id" --json conclusion --jq .conclusion)"
+              if [[ "$conclusion" == success ]]; then
+                status success "ci.yml passed" "$ci_url"
+              else
+                status failure "ci.yml: ${conclusion:-unknown}" "$ci_url"
+              fi
+              echo "ci.yml run $ci_url: $conclusion" | tee -a "$GITHUB_STEP_SUMMARY"

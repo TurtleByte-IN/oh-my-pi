@@ -179,9 +179,19 @@ step, with the merge a no-op, which exercises the pipeline.
 A pull request opened with `GITHUB_TOKEN` starts no `pull_request` workflows. So the workflow
 runs `gh workflow run ci.yml --ref chore/upstream-<tag>`. That run is not a pull-request run.
 It builds the linux-x64 addons from source with Bazel, with no cache in the fork, and runs
-`rust_validate`, so it takes longer than a PR run. It reports `CI gate` on the PR's head commit,
-which is the check branch protection requires. The PR therefore cannot merge until the full
-suite passes. A push to the branch by a person, for example a fix, runs CI the usual way.
+`rust_validate`, so it takes longer than a PR run.
+
+Branch protection does not count the check runs of a dispatched run: the PR lists none of them,
+and its required `CI gate` stays "Expected" even after the dispatched `CI gate` job passes. So
+the adoption workflow posts a commit status named `CI gate` on the merge commit. It is `pending`
+from the dispatch, and `success` or `failure` once the dispatched run ends, linking to that run.
+The status comes from `GITHUB_TOKEN`, i.e. the GitHub Actions app, which is the source the
+required check accepts. The adoption job therefore waits for CI and has a 330-minute limit. If
+it times out, the status stays `pending`; push to the branch (an empty commit is enough) to run
+CI the usual way.
+
+The PR therefore cannot merge until the full suite passes. A push to the branch by a person, for
+example a fix, runs CI the usual way.
 
 ### What GITHUB_TOKEN cannot do
 
