@@ -9,7 +9,9 @@ import * as path from "node:path";
 import { type } from "@oh-my-pi/omptype";
 import * as zod from "@oh-my-pi/omptype/zod";
 import { getAgentDir, getProjectDir, isEnoent, logger } from "@oh-my-pi/pi-utils";
+import { isProjectCodeTrusted } from "../../capability";
 import { getConfigDirs } from "../../config";
+import type { Settings } from "../../config/settings";
 
 import { execCommand } from "../../exec/exec";
 // Runtime self-reference: dereference this namespace only inside loader functions to keep the index.ts cycle safe.
@@ -73,6 +75,8 @@ export interface DiscoverCustomCommandsOptions {
 	cwd?: string;
 	/** Agent config directory. Default: from getAgentDir() */
 	agentDir?: string;
+	/** Session settings deciding workspace trust (untrusted: no project commands). Default: the bound session's. */
+	settings?: Settings;
 }
 
 export interface DiscoverCustomCommandsResult {
@@ -107,7 +111,8 @@ export async function discoverCustomCommands(
 		}
 	}
 
-	for (const entry of getConfigDirs("commands", { cwd, existingOnly: true })) {
+	const project = isProjectCodeTrusted(options.settings);
+	for (const entry of getConfigDirs("commands", { cwd, existingOnly: true, project })) {
 		const source = entry.level === "user" ? "user" : "project";
 		if (!commandDirs.some(d => d.path === entry.path)) {
 			commandDirs.push({ path: entry.path, source });
@@ -147,6 +152,8 @@ export interface LoadCustomCommandsOptions {
 	cwd?: string;
 	/** Agent config directory. Default: from getAgentDir() */
 	agentDir?: string;
+	/** Session settings deciding workspace trust (untrusted: no project commands). Default: the bound session's. */
+	settings?: Settings;
 }
 
 /**
@@ -185,7 +192,7 @@ export async function loadCustomCommands(options: LoadCustomCommandsOptions = {}
 	const cwd = options.cwd ?? getProjectDir();
 	const agentDir = options.agentDir ?? getAgentDir();
 
-	const { paths } = await discoverCustomCommands({ cwd, agentDir });
+	const { paths } = await discoverCustomCommands({ cwd, agentDir, settings: options.settings });
 
 	const commands: LoadedCustomCommand[] = [];
 	const errors: Array<{ path: string; error: string }> = [];

@@ -12,6 +12,7 @@ import * as zod from "@oh-my-pi/omptype/zod";
 import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import { logger } from "@oh-my-pi/pi-utils";
 import { toolCapability } from "../../capability/tool";
+import type { Settings } from "../../config/settings";
 import { type CustomTool, loadCapability } from "../../discovery";
 import type { ExecOptions } from "../../exec/exec";
 import { execCommand } from "../../exec/exec";
@@ -258,11 +259,14 @@ export async function loadCustomTools(
  * @param configuredPaths - Explicit paths from settings.json and CLI --tool flags
  * @param cwd - Current working directory
  * @param agentDir - Native user config dir. Default: getAgentDir()
+ * @param settings - Session settings deciding workspace trust (untrusted: no project tools or
+ *   plugins). Default: the bound session's.
  */
 export async function discoverCustomToolPaths(
 	configuredPaths: string[],
 	cwd: string,
 	agentDir?: string,
+	settings?: Settings,
 ): Promise<ToolPathWithSource[]> {
 	const allPathsWithSources: ToolPathWithSource[] = [];
 	const seen = new Set<string>();
@@ -281,6 +285,7 @@ export async function discoverCustomToolPaths(
 	const discoveredTools = await loadCapability<CustomTool>(toolCapability.id, {
 		cwd,
 		agentDir,
+		settings,
 		filter: tool => /\.(ts|js|mjs|cjs)$/.test(tool.path) && !tool.path.endsWith(".d.ts"),
 	});
 	for (const tool of discoveredTools.items) {
@@ -292,7 +297,7 @@ export async function discoverCustomToolPaths(
 	}
 
 	// 2. Plugin tools: ~/.omp/plugins/node_modules/*/
-	for (const pluginPath of await getAllPluginToolPaths(cwd)) {
+	for (const pluginPath of await getAllPluginToolPaths(cwd, settings)) {
 		addPath(pluginPath, { provider: "plugin", providerName: "Plugin", level: "user" });
 	}
 

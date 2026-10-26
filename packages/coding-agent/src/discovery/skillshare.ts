@@ -22,7 +22,8 @@ import {
 	type SkillsLock,
 } from "../skillshare/manifest";
 import { getProjectAncestorDirs } from "./builtin";
-import { createSourceMeta, SOURCE_PATHS } from "./helpers";
+import { createSourceMeta } from "./helpers";
+import { SOURCE_PATHS } from "./source-paths";
 
 export const SKILLSHARE_PROVIDER_ID = "skillshare";
 const PRIORITY = 95;

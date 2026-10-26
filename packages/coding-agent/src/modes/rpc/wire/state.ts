@@ -118,6 +118,18 @@ export const stateDefs = {
 		"sessionFile?": "string",
 		sessionId: "string",
 		"sessionName?": "string",
+		"workspaceTrusted?": doc(
+			"boolean",
+			"`workspace.trusted` as the session resolved it: `false` ignores the project's approval policies, MCP servers, extensions and hooks. Contract `1.9.0`.",
+		),
+		"browserEnabled?": doc(
+			"boolean",
+			"Whether the browser eval prelude is on: `browser.enabled` as the session resolved it, runtime overrides included. Contract `1.9.0`.",
+		),
+		"computerEnabled?": doc(
+			"boolean",
+			"Whether the computer-use eval prelude is on: `computer.enabled` as the session resolved it, runtime overrides (`/computer`) included. Contract `1.9.0`.",
+		),
 		autoCompactionEnabled: absentAs("boolean", false),
 		fastModeEnabled: absentAs("boolean", false),
 		fastModeActive: absentAs("boolean", false),

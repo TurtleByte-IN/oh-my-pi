@@ -2687,6 +2687,18 @@
 				"sessionName": {
 					"type": "string"
 				},
+				"workspaceTrusted": {
+					"type": "boolean",
+					"description": "`workspace.trusted` as the session resolved it: `false` ignores the project's approval policies, MCP servers, extensions and hooks. Contract `1.9.0`."
+				},
+				"browserEnabled": {
+					"type": "boolean",
+					"description": "Whether the browser eval prelude is on: `browser.enabled` as the session resolved it, runtime overrides included. Contract `1.9.0`."
+				},
+				"computerEnabled": {
+					"type": "boolean",
+					"description": "Whether the computer-use eval prelude is on: `computer.enabled` as the session resolved it, runtime overrides (`/computer`) included. Contract `1.9.0`."
+				},
 				"autoCompactionEnabled": {
 					"type": "boolean",
 					"default": false

@@ -35,6 +35,8 @@ Merging is shallow per server: a higher-precedence server object overrides only 
 
 The native user config directory follows `PI_CONFIG_DIR` and active profiles; `~/.omp/agent/lsp.json` is the default-profile spelling. This shared config lookup does not use `PI_CODING_AGENT_DIR` as an arbitrary replacement base. Claude's user directory honors `CLAUDE_CONFIG_DIR`. Foreign user sources (Claude, Codex, Gemini) are opt-in through the enabled-provider configuration; setting `CLAUDE_CONFIG_DIR` also opts Claude in unless explicitly disabled. Project and cwd sources do not walk ancestors and are not subject to that user-source opt-in.
 
+In an untrusted workspace (`workspace.trusted: false`) the cwd and project config-dir sources are skipped, and server commands resolve through `PATH` only, never a project-local `node_modules/.bin`, virtualenv or similar bin directory. DAP adapter configs (`dap.*`) follow the same rule.
+
 **Recommended locations:**
 
 - User-wide preferences → active native agent directory's `lsp.json`

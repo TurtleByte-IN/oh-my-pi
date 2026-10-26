@@ -495,6 +495,12 @@ export interface SessionState {
 	interruptMode?: InterruptMode;
 	sessionFile?: string;
 	sessionName?: string;
+	/** `workspace.trusted` as the session resolved it: `false` ignores the project's approval policies, MCP servers, extensions and hooks. Contract `1.9.0`. */
+	workspaceTrusted?: boolean;
+	/** Whether the browser eval prelude is on: `browser.enabled` as the session resolved it, runtime overrides included. Contract `1.9.0`. */
+	browserEnabled?: boolean;
+	/** Whether the computer-use eval prelude is on: `computer.enabled` as the session resolved it, runtime overrides (`/computer`) included. Contract `1.9.0`. */
+	computerEnabled?: boolean;
 	autoCompactionEnabled?: boolean;
 	fastModeEnabled?: boolean;
 	fastModeActive?: boolean;

@@ -301,4 +301,32 @@ describe("RPC runtime controls", () => {
 		harness = await RpcHarness.start(["--approval-mode", "yolo"]);
 		expect(await harness.data({ type: "set_advisor", enabled: true })).toEqual({ enabled: true, active: false });
 	}, 60_000);
+
+	test("get_state reports workspace trust and the browser and computer preludes", async () => {
+		harness = await RpcHarness.start(["--approval-mode", "yolo"]);
+		expect(await harness.data({ type: "get_state" })).toMatchObject({
+			workspaceTrusted: true,
+			computerEnabled: false,
+		});
+		await harness.stop();
+		harness = undefined;
+
+		// A host's `--config` overlay: the values a guard writes for an untrusted, supervised thread.
+		const overlay = TempDir.createSync("@omp-rpc-overlay-");
+		try {
+			const file = path.join(overlay.path(), "thread.yml");
+			await Bun.write(
+				file,
+				"workspace:\n  trusted: false\nbrowser:\n  enabled: false\ncomputer:\n  enabled: true\n",
+			);
+			harness = await RpcHarness.start(["--approval-mode", "yolo", "--config", file]);
+			expect(await harness.data({ type: "get_state" })).toMatchObject({
+				workspaceTrusted: false,
+				browserEnabled: false,
+				computerEnabled: true,
+			});
+		} finally {
+			await overlay.remove();
+		}
+	}, 120_000);
 });

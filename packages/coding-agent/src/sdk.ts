@@ -1100,6 +1100,7 @@ export async function discoverSessionExtensionPaths(
 	return discoverExtensionPaths(configuredPaths, cwd, disabledExtensionIds, {
 		ambient: !explicitOnly,
 		includeAmbientHooks: options.includeAmbientHooks,
+		settings,
 	});
 }
 
@@ -1913,7 +1914,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 	const customCommandsPromise =
 		options.disableExtensionDiscovery || options.restrictToolNames === true
 			? Promise.resolve<CustomCommandsLoadResult>({ commands: [], errors: [] })
-			: logger.time("discoverCustomCommands", loadCustomCommandsInternal, { cwd, agentDir });
+			: logger.time("discoverCustomCommands", loadCustomCommandsInternal, { cwd, agentDir, settings });
 	customCommandsPromise.catch(() => {});
 	const skillsSettings = cfgSkills.get(settings);
 	const disabledExtensionIds = cfgDisabledExtensions.get(settings);
@@ -2724,7 +2725,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 			// pending-action queueing.
 			customToolPaths =
 				options.preloadedCustomToolPaths ??
-				(await logger.time("discoverCustomToolPaths", () => discoverCustomToolPaths([], cwd, agentDir)));
+				(await logger.time("discoverCustomToolPaths", () => discoverCustomToolPaths([], cwd, agentDir, settings)));
 			const customToolsLoadResult = await logger.time("loadCustomTools", () =>
 				loadCustomTools(customToolPaths, cwd, builtInToolNames, action => queueResolveHandler(toolSession, action)),
 			);
@@ -5093,7 +5094,7 @@ async function createAgentSessionScoped(options: CreateAgentSessionOptions): Pro
 				resetCapabilities();
 				const cwdNow = sessionManager.getCwd();
 				const [governedPaths, enabledPaths] = await Promise.all([
-					discoverExtensionPaths([...roots.explicit, ...seenConfiguredExtensions], cwdNow, []),
+					discoverExtensionPaths([...roots.explicit, ...seenConfiguredExtensions], cwdNow, [], { settings }),
 					discoverSessionExtensionPaths({ extensionRoots: () => roots }, cwdNow, settings),
 				]);
 				const governed = new Set(governedPaths.map(extensionPath => resolvePath(extensionPath, cwdNow)));

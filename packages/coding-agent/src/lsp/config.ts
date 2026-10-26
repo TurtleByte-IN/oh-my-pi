@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { $which, isRecord, logger, pathIsWithin, type WhichOptions } from "@oh-my-pi/pi-utils";
 import { YAML } from "bun";
+import { isProjectCodeTrusted } from "../capability";
 import type { ClaudePluginRoot } from "../discovery/helpers";
 import {
 	type ConfigFileAdapter,
@@ -286,21 +287,20 @@ export interface ResolveCommandOptions extends Pick<WhichOptions, "cache" | "PAT
 
 /**
  * Resolve a command to an executable path.
- * Checks project-local bin directories first, then falls back to $PATH.
+ * Checks project-local bin directories first (trusted workspaces only), then falls back to $PATH.
  *
  * @param command - The command name (e.g., "typescript-language-server")
  * @param cwd - Working directory to search from
  * @returns Absolute path to the executable, or null if not found
  */
 export function resolveCommand(command: string, cwd: string, options?: ResolveCommandOptions): string | null {
-	if (options?.localRoots) {
-		for (const root of options.localRoots) {
+	// A project-local binary (node_modules/.bin, .venv/bin, …) is the project's own code: an
+	// untrusted workspace resolves only through PATH.
+	if (isProjectCodeTrusted()) {
+		for (const root of options?.localRoots ?? [cwd]) {
 			const resolved = resolveCommandFromLocalRoot(command, root);
 			if (resolved) return resolved;
 		}
-	} else {
-		const resolved = resolveCommandFromLocalRoot(command, cwd);
-		if (resolved) return resolved;
 	}
 
 	if (!options) return $which(command);

@@ -35,9 +35,9 @@ import {
 	isUserConfigRoot,
 	loadFilesFromDir,
 	parseRequestIdFormat,
-	SOURCE_PATHS,
 	scanSkillsFromDir,
 } from "./helpers";
+import { SOURCE_PATHS } from "./source-paths";
 
 const PROVIDER_ID = "native";
 const DISPLAY_NAME = "OMP";

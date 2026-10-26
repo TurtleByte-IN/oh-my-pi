@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { isProjectCodeTrusted } from "../capability";
 import { getConfigDirPaths } from "../config";
 import { type ClaudePluginRoot, getPreloadedPluginRoots } from "../discovery/helpers";
 
@@ -36,7 +37,8 @@ export interface ConfigFileSourcesOptions<T> {
  * Config sources for base name `base` — `"lsp"` covers `lsp.json`/`.lsp.json`/`lsp.yaml`/`.lsp.yaml`/
  * `lsp.yml`/`.lsp.yml` — in priority order: cwd files, project config dirs, user config dirs,
  * plugin roots (plus {@link ConfigFileSourcesOptions.pluginRootSource} per root), then home-directory
- * files. Lowest priority comes last, so callers merge over a reversed list.
+ * files. Lowest priority comes last, so callers merge over a reversed list. An untrusted workspace
+ * contributes neither cwd files nor project config dirs: these configs name programs to spawn.
  */
 export function configFileSources<T>(
 	base: string,
@@ -52,9 +54,10 @@ export function configFileSources<T>(
 		}
 	};
 
-	addDir(cwd);
-
-	for (const dir of getConfigDirPaths("", { user: false, project: true, cwd })) addDir(dir);
+	if (isProjectCodeTrusted()) {
+		addDir(cwd);
+		for (const dir of getConfigDirPaths("", { user: false, project: true, cwd })) addDir(dir);
+	}
 
 	for (const dir of getConfigDirPaths("", { user: true, project: false })) addDir(dir);
 

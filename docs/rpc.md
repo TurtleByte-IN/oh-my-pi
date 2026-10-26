@@ -1979,3 +1979,34 @@ with RpcClient(provider="anthropic", model="claude-sonnet-4-5") as client:
 ```
 
 By default, `RpcClient` starts `omp --mode rpc`; pass `command=[...]` to own the exact child command. It handles request correlation, typed notifications, v2 negotiation and chunk reassembly, message pagination, extension UI (including the opt-in `ask` dialog), and host-owned tools and URI schemes. Its command methods and `on_<frame type>` listeners are generated from the wire schema, so it wraps every command above; the `messageUpdates: "delta"` projection stays raw-protocol only. The Python package owns that client API and process lifecycle; this document and `rpc-types.ts` remain the canonical wire contract. Use raw protocol frames when a client library does not wrap the surface you need.
+
+## Workspace trust (contract 1.9.0)
+
+`get_state` reports `workspaceTrusted`: the session's `workspace.trusted`. A host that
+does not trust the working directory sets `workspace.trusted: false` in its `--config`
+overlay (the project layer cannot set it). The session then runs none of the project's own
+code: no project custom tools (`.omp/tools`, `.claude/tools`, `.codex/tools`, …), custom
+commands, extensions, hooks, plugins or plugin overrides, MCP servers (`mcp.enableProjectConfig`
+resolves `false`), SSH hosts, and no LSP or DAP servers from project `lsp.*`/`dap.*` files or
+project config dirs; LSP and DAP commands resolve through `PATH` only, never a project-local
+`node_modules/.bin` or virtualenv. Of the project's settings (`.omp/config.yml`, merged
+`.claude/settings.json`) only an allowlist applies: model roles, sampling, thinking display,
+`display`, `theme`, `tui`, `statusLine`, `edit`, `todo`, `goal` and similar behaviour keys, and
+the compaction thresholds. Everything else (`shellPath`, `shellCommandPrefix`, `tools.approval`,
+`bash.patterns`, `collab.*`, `share.serverUrl`, `stream.serverUrl`, `images.urls.*`,
+`compaction.remoteEndpoint`, …) is dropped.
+
+Independently, outside `yolo` a write-tier call whose target is agent configuration always
+prompts, even when the mode, a user `allow` or a remembered grant would approve it. Agent
+configuration is anything under a discovery source's config dir, project or user (`.omp`,
+`.pi`, `.claude`, `.codex`, `.gemini`, `.opencode`, `~/.config/opencode`, `.cursor`,
+`.windsurf`, `.cline`, `.github`, `.vscode`), `.git/hooks/` and `.git/config`, `mcp.json`,
+`.mcp.json`, `opencode.json(c)`, `.claude.json`, `lsp.*`, `dap.*`, `ssh.*` (each with and
+without a leading dot), and a loaded `--config` file. The check sees through symlinks (the
+deepest existing ancestor is resolved), compares names case-insensitively and ignores the
+trailing dots and spaces Windows drops.
+
+`get_state` also reports `browserEnabled` and `computerEnabled`: whether the browser and
+computer-use eval preludes are on, from `browser.enabled` and `computer.enabled` as the
+session resolved them, runtime overrides (`/computer on`) included. A host that turns them off
+in its overlay reads these back to confirm the session saw the change before it sends a prompt.

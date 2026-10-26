@@ -12,6 +12,7 @@ import { shortenPath } from "@oh-my-pi/pi-tui/render/render-utils";
 import approvalFolderTemplate from "../prompts/tools/approval-folder.md" with { type: "text" };
 import type { AgentTool, ToolApprovalDecision, ToolTier } from "@oh-my-pi/pi-agent-core";
 import * as path from "node:path";
+import { isAgentConfigPath } from "../config/agent-config-paths";
 import type { Settings } from "../config/settings";
 import { normalizeToLF } from "../edit/normalize";
 import type {
@@ -310,6 +311,9 @@ function modeApprovesTier(mode: ApprovalMode, tier: ToolTier): boolean {
 	return TIER_RANK[tier] <= TIER_RANK[APPROVAL_MODE_MAX_TIER[mode]];
 }
 
+const AGENT_CONFIG_WRITE_REASON =
+	"Changes agent configuration or code it loads (approval policies, tools, commands, extensions, hooks, MCP/LSP servers, git hooks)";
+
 /**
  * Resolve approval policy for a tool call.
  *
@@ -335,7 +339,16 @@ export function resolveApproval(
 	userConfig: Record<string, unknown> = {},
 	grants?: ApprovalGrantStore,
 ): ResolvedApproval {
-	const decision = getToolDecision(tool, args);
+	const toolDecision = getToolDecision(tool, args);
+	// Writing agent configuration could grant later calls what this mode would ask for, so outside
+	// yolo it always asks, whatever the mode, a user `allow` or a remembered grant.
+	const decision =
+		mode !== "yolo" &&
+		toolDecision.tier !== "read" &&
+		toolDecision.policy !== "deny" &&
+		approvalCacheTargets(tool, args).some(target => isAgentConfigPath(target))
+			? { ...toolDecision, policy: "prompt" as const, override: true, reason: AGENT_CONFIG_WRITE_REASON }
+			: toolDecision;
 	const policyKey = decision.policyKey ?? tool.name;
 	const userPolicy = Object.hasOwn(userConfig, policyKey) ? normalizePolicy(userConfig[policyKey]) : undefined;
 	const fallbackPolicy =
