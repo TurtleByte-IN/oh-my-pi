@@ -82,6 +82,8 @@ export interface ProviderDefinition {
 	// --- interactive login (OAuthProviderInterface-compatible) ---
 	/** Interactive login; flows that need `onPrompt`/`onAuth` reject a bare controller at runtime. */
 	readonly login?: (callbacks: OAuthController) => Promise<OAuthCredentials | string>;
+	/** Engine behind `login`, from the policy's `login` rule; `"api-key"` flows prompt once for a pasted key. */
+	readonly loginKind?: "api-key" | "oauth-code" | "device-code" | "custom";
 	/** Refresh a stored grant; the signal bounds provider network work to refresh ownership. */
 	readonly refreshToken?: (credentials: OAuthCredentials, signal?: AbortSignal) => Promise<OAuthCredentials>;
 	readonly getApiKey?: (credentials: OAuthCredentials) => string;

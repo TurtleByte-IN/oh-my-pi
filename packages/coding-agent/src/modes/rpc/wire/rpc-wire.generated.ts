@@ -742,11 +742,20 @@ export interface BtwHistoryRecord {
 	followUps?: BtwHistoryTurn[];
 }
 
+/** Where a provider's auth comes from: `--api-key`, models config, a stored OAuth grant, a stored API key, or an env var. */
+export type LoginAuthSource = "runtime" | "config" | "oauth" | "api_key" | "env";
+
 export interface LoginProvider {
 	id: string;
 	name: string;
 	available: boolean;
 	authenticated: boolean;
+	/** `login` asks for one pasted API key, which hosts may pass as `input`; false for browser, device-code and multi-step flows. */
+	apiKey?: boolean;
+	/** Auth that currently applies; absent when `authenticated` is false. */
+	source?: LoginAuthSource;
+	/** Env var backing the auth when `source` is `"env"` and one variable names it. */
+	envVar?: string;
 }
 
 /** A stored credential `logout` can remove; `active` marks credentials the session may be using. */
@@ -1262,6 +1271,8 @@ export interface InputUiRequest {
 	title: string;
 	placeholder?: string;
 	timeout?: number;
+	/** Mask the answer and keep it out of history and logs; sent only for a `login` that passed `secretInput: true`. */
+	secret?: boolean;
 }
 
 export interface EditorUiRequest {
@@ -1863,6 +1874,10 @@ export interface GetLoginProvidersResult {
 
 export interface LoginParams {
 	providerId: string;
+	/** Answer to the flow's first prompt, sent instead of an `input` request; for `apiKey` providers, the key. */
+	input?: string;
+	/** The host masks `input` requests marked `secret`; without it, a flow that asks for a secret fails. */
+	secretInput?: boolean;
 }
 
 export interface LoginResult {

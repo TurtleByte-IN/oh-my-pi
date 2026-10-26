@@ -42,6 +42,7 @@ import type {
 	RpcHostToolResult,
 	RpcHostToolUpdate,
 	RpcLiveFrame,
+	RpcLoginProvider,
 	RpcOpenSessionResult,
 	RpcPrewalkResult,
 	RpcPromptResultFrame,
@@ -1276,20 +1277,18 @@ export class RpcClient {
 	}
 
 	/**
-	 * Get list of OAuth providers available for login, with their current authentication status.
+	 * Get the login providers (OAuth flows and API-key providers) with their current authentication status.
 	 */
-	async getLoginProviders(): Promise<Array<{ id: string; name: string; available: boolean; authenticated: boolean }>> {
+	async getLoginProviders(): Promise<RpcLoginProvider[]> {
 		const response = await this.#send({ type: "get_login_providers" });
-		return this.#getData<{
-			providers: Array<{ id: string; name: string; available: boolean; authenticated: boolean }>;
-		}>(response).providers;
+		return this.#getData<{ providers: RpcLoginProvider[] }>(response).providers;
 	}
 
 	/**
-	 * Trigger OAuth login for the given provider.
-	 * The server will emit an `open_url` extension_ui_request for the auth URL.
-	 * Providers that require pasted-code completion may then emit an `input`
-	 * extension_ui_request; pass `onManualCodeInput` to satisfy it.
+	 * Sign in to the given provider.
+	 * The server may emit an `open_url` extension_ui_request for the auth URL
+	 * and `input` extension_ui_requests for prompts (pasted codes, endpoint
+	 * choices, API keys); pass `onManualCodeInput` to satisfy them.
 	 * Resolves when login completes or rejects on failure.
 	 *
 	 * @param onOpenUrl Called when the server emits the auth URL. The host must
@@ -1298,15 +1297,23 @@ export class RpcClient {
 	 *   `url` — hosts SHOULD surface it as the truncation-safe copy target so
 	 *   terminal viewport clipping cannot corrupt trailing OAuth query
 	 *   parameters (e.g. `code_challenge_method=S256`).
+	 * @param input Answer to the flow's first prompt (an API key for `apiKey` providers), sent in the command.
+	 * @param secretInput Declare that `onManualCodeInput` masks prompts marked `secret`.
 	 */
 	async login(
 		providerId: string,
 		options?: {
 			onOpenUrl?: (url: string, instructions?: string, launchUrl?: string) => void;
-			onManualCodeInput?: (prompt: { title: string; placeholder?: string }) => string | Promise<string>;
+			onManualCodeInput?: (prompt: {
+				title: string;
+				placeholder?: string;
+				secret?: boolean;
+			}) => string | Promise<string>;
+			input?: string;
+			secretInput?: boolean;
 		},
 	): Promise<{ providerId: string }> {
-		const { onManualCodeInput, onOpenUrl } = options ?? {};
+		const { onManualCodeInput, onOpenUrl, input, secretInput } = options ?? {};
 		const listener =
 			onOpenUrl || onManualCodeInput
 				? (req: RpcExtensionUIRequest) => {
@@ -1317,7 +1324,9 @@ export class RpcClient {
 						if (req.method !== "input" || !onManualCodeInput) return;
 						// The prompt can outlive the agent (e.g. a broken stdin pipe stops the client); drop the reply
 						// instead of throwing "Client not started" out of a detached promise chain.
-						void Promise.resolve(onManualCodeInput({ title: req.title, placeholder: req.placeholder })).then(
+						void Promise.resolve(
+							onManualCodeInput({ title: req.title, placeholder: req.placeholder, secret: req.secret }),
+						).then(
 							value => {
 								if (this.#process) this.#writeFrame({ type: "extension_ui_response", id: req.id, value });
 							},
@@ -1331,7 +1340,15 @@ export class RpcClient {
 				: undefined;
 		if (listener) this.#extensionUiListeners.add(listener);
 		try {
-			const response = await this.#send({ type: "login", providerId }, 600_000);
+			const response = await this.#send(
+				{
+					type: "login",
+					providerId,
+					...(input !== undefined ? { input } : {}),
+					...(secretInput ? { secretInput } : {}),
+				},
+				600_000,
+			);
 			return this.#getData<{ providerId: string }>(response);
 		} finally {
 			if (listener) this.#extensionUiListeners.delete(listener);

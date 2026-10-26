@@ -3,6 +3,7 @@
 // ============================================================================
 
 import { authPolicyFor } from "@oh-my-pi/pi-catalog/compat/auth";
+import { providerEntries } from "@oh-my-pi/pi-catalog/compat/providers";
 import * as AIError from "../../error";
 import { jwtExpiryMs, NEVER_EXPIRES } from "../engine/common";
 import { getProviderDefinition, PROVIDER_REGISTRY } from "../registry";
@@ -25,7 +26,31 @@ const builtInOAuthProviders: OAuthProviderInfo[] = PROVIDER_REGISTRY.filter(
 	name: provider.name,
 	available: provider.available ?? true,
 	storeCredentialsAs: provider.storeCredentialsAs,
+	...(provider.loginKind === "api-key" ? { apiKeyLogin: true } : {}),
 }));
+
+/**
+ * Providers with no login flow that authenticate with one plain API key from a
+ * named env var (`OPENAI_API_KEY`, `GROQ_API_KEY`, …). Ambient-credential
+ * providers (computed env resolvers such as Bedrock or Vertex ADC) and
+ * keyless providers are excluded: a single pasted key does not configure them.
+ */
+const apiKeyProviders: OAuthProviderInfo[] = (() => {
+	const entries = providerEntries();
+	return PROVIDER_REGISTRY.filter(
+		provider =>
+			!provider.login &&
+			provider.showInLoginList !== false &&
+			provider.envKeys === undefined &&
+			provider.allowsMissingApiKey !== true &&
+			(entries[provider.id]?.envVars?.length ?? 0) > 0,
+	).map(provider => ({
+		id: provider.id,
+		name: provider.name,
+		available: provider.available ?? true,
+		apiKeyLogin: true,
+	}));
+})();
 
 const customOAuthProviders = new Map<string, OAuthProviderInterface>();
 
@@ -165,6 +190,14 @@ export function getOAuthProviders(): OAuthProviderInfo[] {
 		storeCredentialsAs: provider.storeCredentialsAs,
 	}));
 	return [...builtInOAuthProviders, ...customProviders];
+}
+
+/**
+ * Providers without a login flow whose single API key a host may store as a
+ * login credential (see {@link apiKeyProviders}); disjoint from {@link getOAuthProviders}.
+ */
+export function getApiKeyProviders(): OAuthProviderInfo[] {
+	return apiKeyProviders;
 }
 
 /** Provider id that stores `providerId`'s credentials: login aliases (`openai-codex-device`) map to their target (`openai-codex`). */

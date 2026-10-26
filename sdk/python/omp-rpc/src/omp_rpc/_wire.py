@@ -147,6 +147,12 @@ _BTW_STATUS_VALUES: Final[frozenset[str]] = frozenset({"running", "complete", "c
 _decode_btw_status = cast("Decoder[BtwStatus]", literal(_BTW_STATUS_VALUES))
 
 
+LoginAuthSource: TypeAlias = Literal["runtime", "config", "oauth", "api_key", "env"]
+"""Where a provider's auth comes from: `--api-key`, models config, a stored OAuth grant, a stored API key, or an env var."""
+_LOGIN_AUTH_SOURCE_VALUES: Final[frozenset[str]] = frozenset({"runtime", "config", "oauth", "api_key", "env"})
+_decode_login_auth_source = cast("Decoder[LoginAuthSource]", literal(_LOGIN_AUTH_SOURCE_VALUES))
+
+
 AutoCompactionReason: TypeAlias = Literal["threshold", "overflow", "idle", "incomplete"]
 _AUTO_COMPACTION_REASON_VALUES: Final[frozenset[str]] = frozenset({"threshold", "overflow", "idle", "incomplete"})
 _decode_auto_compaction_reason = cast("Decoder[AutoCompactionReason]", literal(_AUTO_COMPACTION_REASON_VALUES))
@@ -931,6 +937,12 @@ class LoginProvider:
     name: str
     available: bool
     authenticated: bool
+    api_key: bool = False
+    """`login` asks for one pasted API key, which hosts may pass as `input`; false for browser, device-code and multi-step flows."""
+    source: LoginAuthSource | None = None
+    """Auth that currently applies; absent when `authenticated` is false."""
+    env_var: str | None = None
+    """Env var backing the auth when `source` is `"env"` and one variable names it."""
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -1481,6 +1493,8 @@ class InputUiRequest:
     title: str
     placeholder: str | None = None
     timeout: int | None = None
+    secret: bool | None = None
+    """Mask the answer and keep it out of history and logs; sent only for a `login` that passed `secretInput: true`."""
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -1579,6 +1593,8 @@ class ExtensionUiRequest(ExtensionUiRequestMixin):
     timeout: int | None = None
     message: str | None = None
     placeholder: str | None = None
+    secret: bool | None = None
+    """Mask the answer and keep it out of history and logs; sent only for a `login` that passed `secretInput: true`."""
     prefill: str | None = None
     prompt_style: bool | None = None
     questions: tuple[AskQuestion, ...] | None = None
@@ -2302,6 +2318,9 @@ def parse_login_provider(value: object, path: str = "LoginProvider") -> LoginPro
         name=required(payload, "name", decode_str, path),
         available=required(payload, "available", decode_bool, path),
         authenticated=required(payload, "authenticated", decode_bool, path),
+        api_key=defaulted(payload, "apiKey", decode_bool, path, False),
+        source=optional(payload, "source", _decode_login_auth_source, path),
+        env_var=optional(payload, "envVar", decode_str, path),
     )
 
 
@@ -2918,6 +2937,7 @@ def parse_input_ui_request(value: object, path: str = "InputUiRequest") -> Input
         title=required(payload, "title", decode_str, path),
         placeholder=optional(payload, "placeholder", decode_str, path),
         timeout=optional(payload, "timeout", decode_int, path),
+        secret=optional(payload, "secret", decode_bool, path),
     )
 
 
@@ -3032,6 +3052,7 @@ def parse_extension_ui_request(value: object, path: str = "ExtensionUiRequest") 
         timeout=optional(payload, "timeout", decode_int, path),
         message=optional(payload, "message", decode_str, path),
         placeholder=optional(payload, "placeholder", decode_str, path),
+        secret=optional(payload, "secret", decode_bool, path),
         prefill=optional(payload, "prefill", decode_str, path),
         prompt_style=optional(payload, "promptStyle", decode_bool, path),
         questions=optional(payload, "questions", array(parse_ask_question), path),
@@ -3610,14 +3631,18 @@ class WireClient:
         return parse_messages_page(self._command("get_messages_page", params), "get_messages_page")
 
     def get_login_providers(self) -> tuple[LoginProvider, ...]:
-        """List OAuth providers and their authentication status."""
+        """List login providers (OAuth and API-key) and their authentication status."""
         params: dict[str, object] = {}
         return required(expect_object(self._command("get_login_providers", params), "get_login_providers"), "providers", array(parse_login_provider), "get_login_providers")
 
-    def login(self, provider_id: str) -> str:
-        """Run OAuth login; the flow arrives as `open_url` and `input` UI requests."""
+    def login(self, provider_id: str, *, input: str | None = None, secret_input: bool | None = None) -> str:
+        """Sign in to a provider; the flow arrives as `open_url`, `notify` and `input` UI requests."""
         params: dict[str, object] = {}
         params["providerId"] = provider_id
+        if input is not None:
+            params["input"] = input
+        if secret_input is not None:
+            params["secretInput"] = secret_input
         return required(expect_object(self._command("login", params, timeout=600), "login"), "providerId", decode_str, "login")
 
     def get_logout_accounts(self, provider_id: str) -> tuple[LogoutAccount, ...]:
@@ -3973,6 +3998,7 @@ __all__ = [
     "LivePhaseEvent",
     "LiveRole",
     "LiveTranscriptEvent",
+    "LoginAuthSource",
     "LoginProvider",
     "LogoutAccount",
     "LogoutResult",

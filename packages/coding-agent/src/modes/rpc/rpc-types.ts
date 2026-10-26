@@ -143,7 +143,7 @@ export type RpcCommand =
 
 	// Login
 	| { id?: string; type: "get_login_providers" }
-	| { id?: string; type: "login"; providerId: string }
+	| { id?: string; type: "login"; providerId: string; input?: string; secretInput?: boolean }
 	| { id?: string; type: "get_logout_accounts"; providerId: string }
 	| { id?: string; type: "logout"; providerId: string; credentialId: number }
 
@@ -611,7 +611,7 @@ export type RpcResponse =
 			type: "response";
 			command: "get_login_providers";
 			success: true;
-			data: { providers: Array<{ id: string; name: string; available: boolean; authenticated: boolean }> };
+			data: { providers: RpcLoginProvider[] };
 	  }
 	| { id?: string; type: "response"; command: "login"; success: true; data: { providerId: string } }
 	| {
@@ -729,6 +729,23 @@ export interface RpcAskDialogQuestion {
 	recommended?: number;
 }
 
+/** Where a login provider's current auth comes from. */
+export type RpcLoginAuthSource = "runtime" | "config" | "oauth" | "api_key" | "env";
+
+/** One `get_login_providers` entry. */
+export interface RpcLoginProvider {
+	id: string;
+	name: string;
+	available: boolean;
+	authenticated: boolean;
+	/** `login` asks for one pasted API key, which hosts may pass as `input`. */
+	apiKey: boolean;
+	/** Auth that currently applies; absent when not authenticated. */
+	source?: RpcLoginAuthSource;
+	/** Env var backing the auth when `source` is `env`. */
+	envVar?: string;
+}
+
 /** Emitted when an extension needs user input */
 export type RpcExtensionUIRequest =
 	| {
@@ -748,6 +765,8 @@ export type RpcExtensionUIRequest =
 			title: string;
 			placeholder?: string;
 			timeout?: number;
+			/** Mask the answer; sent only for a `login` with `secretInput: true`. */
+			secret?: boolean;
 	  }
 	| {
 			type: "extension_ui_request";

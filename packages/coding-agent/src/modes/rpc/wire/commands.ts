@@ -366,14 +366,24 @@ export const rpcCommands: readonly RpcCommandSpec[] = [
 
 	{
 		name: "get_login_providers",
-		doc: "List OAuth providers and their authentication status.",
+		doc: "List login providers (OAuth and API-key) and their authentication status.",
 		result: { providers: "LoginProvider[]" },
 		unwrap: "providers",
 	},
 	{
 		name: "login",
-		doc: "Run OAuth login; the flow arrives as `open_url` and `input` UI requests.",
-		params: { providerId: "string" },
+		doc: "Sign in to a provider; the flow arrives as `open_url`, `notify` and `input` UI requests.",
+		params: {
+			providerId: "string",
+			"input?": doc(
+				"string",
+				"Answer to the flow's first prompt, sent instead of an `input` request; for `apiKey` providers, the key.",
+			),
+			"secretInput?": doc(
+				"boolean",
+				"The host masks `input` requests marked `secret`; without it, a flow that asks for a secret fails.",
+			),
+		},
 		result: { providerId: "string" },
 		unwrap: "providerId",
 		timeoutMs: 600_000,

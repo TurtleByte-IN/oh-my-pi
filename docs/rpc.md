@@ -265,15 +265,32 @@ The bundled TypeScript `RpcClient.getMessages()` and Python `RpcClient.get_messa
 
 ### Login
 
-- `{ id?, type: "get_login_providers" }`
-- `{ id?, type: "login", providerId: string }`
+- `{ id?, type: "get_login_providers" }` → `data: { providers: LoginProvider[] }`
+- `{ id?, type: "login", providerId: string, input?: string, secretInput?: boolean }` → `data: { providerId: string }`
 - `{ id?, type: "get_logout_accounts", providerId: string }` → `data: { accounts: LogoutAccount[] }`
 - `{ id?, type: "logout", providerId: string, credentialId: number }` → `data: { remainingSource?: string }`
 
-Login forwards ordinary OAuth input prompts only after the provider emits an
-authorization URL. Prompts marked `secret: true` are always rejected with a
-failed `login` response directing the user to the terminal UI; no ordinary
-`input` request is emitted. RPC does not negotiate secret-input support.
+`get_login_providers` lists every provider with a login flow (OAuth, device
+code, pasted key) followed by the API-key providers that have none (OpenAI,
+Groq, Gemini, Mistral, …). Each `LoginProvider` carries `id`, `name`,
+`available`, `authenticated`, `apiKey` (the login asks for one pasted API key),
+`source` (where the auth that applies comes from: `runtime`, `config`, `oauth`,
+`api_key`, or `env`; absent when not authenticated), and `envVar` (the variable
+behind `source: "env"`). Providers that authenticate with ambient credentials
+(Bedrock, Vertex ADC) or need no key are not listed.
+
+`login` forwards the flow's prompts as `input` requests, including prompts that
+come before the authorization URL. `input` answers the flow's first prompt in
+the command itself, so no request is emitted for it; for an `apiKey` provider
+that prompt is the key, and a host can sign in without any UI round trip. For a
+provider without a login flow, `login` stores the key as a login credential
+(it takes precedence over the provider's env var) and `logout` removes it.
+
+Prompts marked `secret` (API keys, tokens) are forwarded as `input` requests
+with `secret: true` only when the command sets `secretInput: true`, which
+declares that the host masks the answer and keeps it out of history and logs.
+Otherwise a secret prompt not answered by `input` fails the `login` with an
+error naming both options; no unmasked `input` request is emitted.
 
 Logout works per stored credential, as `/logout` does in the TUI, because one
 provider can hold several accounts. `get_logout_accounts` lists them (`credentialId`,
@@ -1423,7 +1440,7 @@ Extensions in RPC mode use request/response UI frames. `--no-ui` disables the ex
 - Other callers using the tool UI context retain its supported dialog methods (`select`, `confirm`, `input`, `editor`, and cancellation) and presentation methods (`notify`, `setStatus`, string-array `setWidget`, `set_editor_text`, and opt-in `setTitle`). `--no-ui` is not a transport-level filter on these methods.
 - Tool approval prompts use the extension runner, not the tool UI context. Under `--no-ui`, tools requiring approval fail closed with a no-interactive-UI error rather than sending an approval dialog, just as with `--mode rpc --no-ui`.
 - MCP authentication challenges do not gain an RPC UI handler in either mode; the interactive-mode MCP auth handler is not installed.
-- A host-issued `login` is independent of both UI settings: it can emit `open_url`, progress `notify`, and non-secret `input` requests after the authorization URL. Secret input and prompts before an authorization URL remain unsupported.
+- A host-issued `login` is independent of both UI settings: it can emit `open_url`, progress `notify`, and `input` requests; secret `input` requests (`secret: true`) only when the `login` sets `secretInput: true`.
 
 Use `--mode rpc --no-ui` for a host without a tool UI surface; use `--mode rpc-ui --no-ui` to answer tool dialogs while keeping extensions headless. Plain `--mode rpc-ui` enables both extension and tool UI.
 
@@ -1432,6 +1449,8 @@ Use `--mode rpc --no-ui` for a host without a tool UI surface; use `--mode rpc-u
 `RpcExtensionUIRequest` (`type: "extension_ui_request"`) methods:
 
 - `select`, `confirm`, `input`, `editor`, `ask`, `cancel`
+  - `input` carries `secret: true` when a `login` with `secretInput: true`
+    asks for a secret; the host masks the answer.
   - `select` keeps labels in `options: string[]` and, when any option has a
     description, emits a positionally aligned
     `optionDetails: Array<{ description?: string }>` array. Hosts that do not
