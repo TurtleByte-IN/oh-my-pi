@@ -32,34 +32,11 @@ on:
          - "package.json"
          - "patches/**"
          - ".github/**"
+   # No path filter on pull requests: `main` requires the `CI gate` check
+   # (docs/fork-release.md), and a filtered-out PR would never report it and
+   # could not merge.
    pull_request:
       branches: [main, omp2]
-      paths:
-         - "packages/**"
-         - "crates/**"
-         - "scripts/**"
-         - ".omp/tools/**"
-         - ".omp/tests/**"
-         - "bazel/**"
-         - "MODULE.bazel"
-         - "MODULE.bazel.lock"
-         - "BUILD.bazel"
-         - ".bazelrc"
-         - ".bazelignore"
-         - ".bazelversion"
-         - "Cargo.toml"
-         - "Cargo.lock"
-         - "deny.toml"
-         - "about.toml"
-         - "LICENSE"
-         - "THIRD-PARTY-NOTICES.txt"
-         - "rust-toolchain.toml"
-         - "rustfmt.toml"
-         - "bun.lock"
-         - "bunfig.toml"
-         - "package.json"
-         - "patches/**"
-         - ".github/**"
    workflow_dispatch:
       inputs:
          skip_npm:
@@ -631,8 +608,8 @@ jobs:
       # Declared first among the test jobs: when the 8-runner pool is full
       # the longest bucket should not be the one left queued (probe run
       # 36238796966 queued it 1.9 min behind the shorter buckets).
-      # No required check keys on this job name (branch protection and
-      # rulesets are off for main/omp2), so the per-shard names are safe.
+      # Required checks key on the `CI gate` aggregate only, never on this job
+      # name, so the per-shard names are safe.
       strategy:
          fail-fast: false
          matrix:
@@ -680,7 +657,7 @@ jobs:
    # OMP_RPC_CONTRACT_BASE_REF makes mandatory.
    rpc_contract:
       name: RPC contract
-      runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-22.04' || 'omp-kata' }}
+      runs-on: ${{ (github.event_name == 'pull_request' || github.repository != 'can1357/oh-my-pi') && 'ubuntu-22.04' || 'omp-kata' }}
       needs: [native_addons]
       if: ${{ !cancelled() && needs.native_addons.result == 'success' }}
       timeout-minutes: 10
@@ -806,6 +783,29 @@ jobs:
            env:
               OMP_INSTALL_TEST_SKIP_NATIVE_BUILD: "1"
            run: bun run ci:test:install-methods
+
+   # Branch protection on `main` requires this job by its name, `CI gate`
+   # (docs/fork-release.md), so splitting or resharding the jobs above needs
+   # no settings change: add every new validation job to `needs`. `always()`
+   # so a failed or cancelled dependency still produces a failing check (a
+   # skipped required check counts as passing). Only rust_validate may skip,
+   # and only on pull requests, where it never runs by design.
+   ci_gate:
+      name: CI gate
+      if: ${{ always() }}
+      needs: [check, bazel_lock, rust_validate, native_addons, test_coding_agent_native, test_workspace, rpc_contract, test_coding_agent_singleton, test_ts_native, test_coding_agent_ui, test_coding_agent_runtime, test_smoke, install_methods]
+      runs-on: ubuntu-22.04
+      timeout-minutes: 5
+      steps:
+         - name: Require every validation job to pass
+           env:
+              RESULTS: ${{ toJSON(needs) }}
+              EVENT: ${{ github.event_name }}
+           run: |
+              echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+              echo "$RESULTS" | jq -e --arg event "$EVENT" 'all(to_entries[];
+                .value.result == "success"
+                or (.key == "rust_validate" and $event == "pull_request" and .value.result == "skipped"))' > /dev/null
 
    # Aggregates every validation job so publish-side release jobs gate on one
    # result. Binary BUILDS deliberately do not wait for this gate — they run

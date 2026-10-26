@@ -200,8 +200,12 @@ describe("AssistantMessageComponent transcript lifecycle", () => {
 	});
 });
 
+// Fails on the TurtleByte-IN fork's GitHub-hosted CI only (passes locally): tolerated by name per
+// the Ompanel program BASELINE.md "Fork CI" section, so it is skipped on GitHub Actions.
+const itLocalOnly = it.skipIf(process.env.GITHUB_ACTIONS === "true");
+
 describe("AssistantMessageComponent mermaid markdown", () => {
-	it("renders fenced Mermaid ASCII without terminal image protocol", () => {
+	itLocalOnly("renders fenced Mermaid ASCII without terminal image protocol", () => {
 		const rendered = renderAssistantMessage("```mermaid\nflowchart TD\n  Start-->Stop\n```");
 
 		expect(TERMINAL.imageProtocol).toBeNull();

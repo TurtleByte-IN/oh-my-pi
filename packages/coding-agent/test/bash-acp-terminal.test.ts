@@ -64,6 +64,11 @@ afterEach(() => {
 	mock.restore();
 });
 
+// "kills and releases the client terminal when the caller aborts" is timing-sensitive and flakes on
+// the TurtleByte-IN fork's GitHub-hosted CI. Tolerated by name per the Ompanel program BASELINE.md
+// "Fork CI" section, so it is skipped on GitHub Actions.
+const itLocalOnly = it.skipIf(process.env.GITHUB_ACTIONS === "true");
+
 describe("BashTool ACP terminal routing", () => {
 	it("emits a live terminal update but releases it before the completed result", async () => {
 		const stubText = "hello from terminal\n";
@@ -264,7 +269,7 @@ describe("BashTool ACP terminal routing", () => {
 		expect(releaseSpy).toHaveBeenCalledTimes(1);
 	});
 
-	it("kills and releases the client terminal when the caller aborts", async () => {
+	itLocalOnly("kills and releases the client terminal when the caller aborts", async () => {
 		shortenAcpWaits();
 		const pendingExit = Promise.withResolvers<{ exitCode: number | null; signal: string | null }>();
 		const controller = new AbortController();

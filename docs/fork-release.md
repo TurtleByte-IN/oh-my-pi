@@ -18,6 +18,22 @@ with no cache. Before they build, the `bazel-cache` action frees disk space and 
 PRs. `native_addons_cross` produces the darwin, arm64, musl and win32 addons. Only the release
 jobs use those addons, so in the fork it runs only for releases and release dry runs.
 
+## Required checks
+
+Branch protection on fork `main` requires one status check, `CI gate` (job `ci_gate` in
+`ci.yml`). It passes only when every pull-request validation job passed: format, lint and type
+check (`Lint, type check & web build`, i.e. `oxfmt --check`, `oxlint` and each package's
+`check:types`), the TS test buckets, the CLI and install smoke tests, `MODULE.bazel.lock`
+freshness, and the `RPC contract` job ([`rpc-contract.md`](./rpc-contract.md)). A failed or
+cancelled job fails the gate. Only `rust_validate` may be skipped, and only on pull requests,
+where it never runs. A new validation job must be added to the gate's `needs`; no settings
+change is needed. Pull requests run CI without a path filter, so every PR reports the gate.
+
+Four upstream coding-agent tests flake only on GitHub-hosted runners and are skipped there by
+name (`skipIf(process.env.GITHUB_ACTIONS === "true")`), still running locally: Mermaid ASCII
+rendering, the broker runtime-dir-loss handover, the ACP terminal abort, and the browser
+mid-goto cancel.
+
 ## Platforms
 
 | Asset | Built on | Smoke-tested on | Status |

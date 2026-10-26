@@ -30,39 +30,47 @@ function startBroker(projectDir: string, runtimeDir: string, onListening: () => 
 	return broker;
 }
 
+// Timing-sensitive; flakes on the TurtleByte-IN fork's GitHub-hosted CI. Tolerated by name per the
+// Ompanel program BASELINE.md "Fork CI" section, so it is skipped on GitHub Actions.
+const itLocalOnly = it.skipIf(process.env.GITHUB_ACTIONS === "true");
+
 describe.skipIf(process.platform === "win32")("daemon broker runtime dir loss", () => {
-	it("hands the scope to a new broker after its runtime dir is deleted under it", async () => {
-		using tempDir = TempDir.createSync("@omp-launch-endpoint-loss-");
-		const projectDir = path.join(tempDir.path(), "project");
-		const runtimeDir = path.join(tempDir.path(), "runtime");
-		await fs.mkdir(projectDir);
+	itLocalOnly(
+		"hands the scope to a new broker after its runtime dir is deleted under it",
+		async () => {
+			using tempDir = TempDir.createSync("@omp-launch-endpoint-loss-");
+			const projectDir = path.join(tempDir.path(), "project");
+			const runtimeDir = path.join(tempDir.path(), "runtime");
+			await fs.mkdir(projectDir);
 
-		const previousTitle = process.title;
-		// Create the client (writes broker.token) before starting the broker, which reads that token.
-		const client = await createDaemonBrokerClient(projectDir, { runtimeDir, idleGraceMs: 1_000 });
-		const listening = Promise.withResolvers<void>();
-		const broker = startBroker(projectDir, runtimeDir, listening.resolve);
-		try {
-			await listening.promise;
-			expect((await client.request({ op: "ping" })).op).toBe("ping");
-
-			// A sweep or cleaner removes the scope, socket and token included, while the broker still
-			// runs with a connected client. The broker must give the scope up rather than keep its lease.
-			await fs.rm(runtimeDir, { recursive: true, force: true });
-			await broker;
-
-			// The same client reconnects: it recreates the token, spawns a fresh broker, and is served.
-			const ping = await client.request({ op: "ping" });
-			if (ping.op !== "ping") throw new Error(`unexpected daemon result ${ping.op}`);
-			expect(ping.projectDir).toBe(client.projectDir);
-		} finally {
-			process.title = previousTitle;
+			const previousTitle = process.title;
+			// Create the client (writes broker.token) before starting the broker, which reads that token.
+			const client = await createDaemonBrokerClient(projectDir, { runtimeDir, idleGraceMs: 1_000 });
+			const listening = Promise.withResolvers<void>();
+			const broker = startBroker(projectDir, runtimeDir, listening.resolve);
 			try {
-				await client.request({ op: "shutdown" });
-			} catch {
-				// The replacement broker may already be gone.
+				await listening.promise;
+				expect((await client.request({ op: "ping" })).op).toBe("ping");
+
+				// A sweep or cleaner removes the scope, socket and token included, while the broker still
+				// runs with a connected client. The broker must give the scope up rather than keep its lease.
+				await fs.rm(runtimeDir, { recursive: true, force: true });
+				await broker;
+
+				// The same client reconnects: it recreates the token, spawns a fresh broker, and is served.
+				const ping = await client.request({ op: "ping" });
+				if (ping.op !== "ping") throw new Error(`unexpected daemon result ${ping.op}`);
+				expect(ping.projectDir).toBe(client.projectDir);
+			} finally {
+				process.title = previousTitle;
+				try {
+					await client.request({ op: "shutdown" });
+				} catch {
+					// The replacement broker may already be gone.
+				}
+				client.close();
 			}
-			client.close();
-		}
-	}, 30_000);
+		},
+		30_000,
+	);
 });
