@@ -1,9 +1,12 @@
 name: "Compose bazel cache config"
 description: >
-   Emits a bazelrc fragment wiring the cluster remote cache. Every Bazel job
-   runs on omp-kata, where the pod env carries the bazel-remote credentials;
-   elsewhere (no credentials) the fragment carries only --config=ci and the
-   build runs uncached.
+   Emits a bazelrc fragment wiring the cluster remote cache. Upstream's Bazel
+   jobs run on omp-kata, where the pod env carries the bazel-remote
+   credentials; elsewhere (no credentials) the fragment carries only
+   --config=ci and the build runs uncached. On GitHub-hosted Linux runners
+   (the TurtleByte-IN fork) it first frees disk for the cold build and
+   installs the host tools the kata image bakes in (ninja for the cmake-built
+   C deps, llvm-objdump for the Apple bridge check).
 
 outputs:
    rc:
@@ -13,6 +16,18 @@ outputs:
 runs:
    using: composite
    steps:
+      - name: Prepare GitHub-hosted runner for Bazel
+        if: runner.environment == 'github-hosted' && runner.os == 'Linux'
+        shell: bash
+        run: |
+           set -euo pipefail
+           df -h /
+           # Unused preinstalled SDKs (~30 GB): a cold build of every
+           # cross toolchain plus their outputs overflows the stock free space.
+           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+           sudo apt-get update -qq
+           sudo apt-get install -y -qq --no-install-recommends llvm ninja-build
+           df -h /
       - name: Compose cache config
         id: compose
         shell: bash
