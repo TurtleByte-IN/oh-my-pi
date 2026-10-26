@@ -932,7 +932,7 @@ export class RpcClient {
 		return this.#getData(response);
 	}
 
-	/** End this session's collab room; false when none was active. */
+	/** End this session's collab room and cancel a start still connecting; false when there was neither. */
 	async collabStop(): Promise<boolean> {
 		const response = await this.#send({ type: "collab_stop" });
 		return this.#getData<{ stopped: boolean }>(response).stopped;

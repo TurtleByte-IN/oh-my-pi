@@ -28,6 +28,8 @@ export class RpcCollabBridge {
 	readonly #controller: CollabController;
 	readonly #output: (frame: RpcCollabStateFrame) => void;
 	#lastState: RpcCollabStateFrame | undefined;
+	/** `collab_start` calls not yet settled; a stop that cancels one reports it stopped something. */
+	#pendingStarts = 0;
 
 	constructor(
 		session: AgentSession,
@@ -67,13 +69,18 @@ export class RpcCollabBridge {
 
 	/** Start (or reuse) this session's room and return its links. */
 	async start(options: RpcCollabStartOptions = {}): Promise<RpcCollabStatus> {
-		const host = await this.#controller.start({ access: options.access ?? "control", relay: options.relay });
-		return describe(host);
+		this.#pendingStarts++;
+		try {
+			const host = await this.#controller.start({ access: options.access ?? "control", relay: options.relay });
+			return describe(host);
+		} finally {
+			this.#pendingStarts--;
+		}
 	}
 
-	/** End the room; false when none was live. */
+	/** End the room, cancelling any start still connecting; false when there was neither. */
 	async stop(): Promise<boolean> {
-		const live = this.#controller.host !== undefined;
+		const live = this.#controller.host !== undefined || this.#pendingStarts > 0;
 		await this.#controller.stop("host stopped");
 		return live;
 	}
@@ -83,7 +90,7 @@ export class RpcCollabBridge {
 		return host ? describe(host) : { active: false, participants: [] };
 	}
 
-	/** Tell guests goodbye and stop for good (RPC shutdown). */
+	/** Tell guests goodbye, cancel a pending start, and stop for good (the RPC client is gone). */
 	async shutdown(): Promise<void> {
 		await this.#controller.shutdown("host exited");
 	}

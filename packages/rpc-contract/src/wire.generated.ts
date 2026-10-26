@@ -1181,7 +1181,7 @@ export interface LiveEndEvent {
 	error?: string;
 }
 
-/** What a collab link grants: `view` watches the session; `control` also lets guests prompt, interrupt and answer dialogs. */
+/** What a collab link grants: `view` watches the session; `control` also lets guests prompt and interrupt it. Over RPC guests never see dialogs; they go to the RPC host. */
 export type CollabAccess = "view" | "control";
 
 export interface CollabParticipant {

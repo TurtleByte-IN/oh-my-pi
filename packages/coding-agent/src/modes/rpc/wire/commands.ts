@@ -268,7 +268,7 @@ export const rpcCommands: readonly RpcCommandSpec[] = [
 	},
 	{
 		name: "collab_stop",
-		doc: "End this session's collab room, telling guests goodbye; false when none was active.",
+		doc: "End this session's collab room, telling guests goodbye, and cancel a start still connecting; false when there was neither.",
 		result: { stopped: "boolean" },
 		unwrap: "stopped",
 	},

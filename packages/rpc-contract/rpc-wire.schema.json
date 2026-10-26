@@ -431,7 +431,7 @@
 			},
 			{
 				"name": "collab_stop",
-				"doc": "End this session's collab room, telling guests goodbye; false when none was active.",
+				"doc": "End this session's collab room, telling guests goodbye, and cancel a start still connecting; false when there was neither.",
 				"params": null,
 				"result": "CollabStopResult",
 				"nullable": false,
@@ -4948,7 +4948,7 @@
 				"control"
 			],
 			"type": "string",
-			"description": "What a collab link grants: `view` watches the session; `control` also lets guests prompt, interrupt and answer dialogs."
+			"description": "What a collab link grants: `view` watches the session; `control` also lets guests prompt and interrupt it. Over RPC guests never see dialogs; they go to the RPC host."
 		},
 		"CollabParticipant": {
 			"type": "object",

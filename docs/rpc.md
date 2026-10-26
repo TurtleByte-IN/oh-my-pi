@@ -1643,8 +1643,9 @@ process exits.
 RPC hosts can share the RPC session live through the collab relay, as `/collab`
 does in the terminal (see [Collab](collab.md)). Guests join with `omp join` or a
 browser and see the session as it runs; with control access they can also
-prompt, interrupt, and answer dialogs, and their prompts run in this session
-like any other turn. At most one room exists per RPC server. RPC sessions never
+prompt and interrupt it, and their prompts run in this session like any other
+turn. Guests never see dialogs over RPC: extension UI and tool approvals go to
+the RPC host only. At most one room exists per RPC server. RPC sessions never
 follow `collab.autoStart`: rooms start only on `collab_start`.
 
 ### Commands
@@ -1667,8 +1668,9 @@ control is requested. A view room never hands out its write token. `relay`
 overrides `collab.relayUrl` (`host[:port]` or a URL); the start fails when
 neither names a relay or the relay does not answer within 15 seconds.
 
-`collab_stop` tells guests goodbye and withdraws the room from the local host
-registry (`omp collab list`); `stopped` is false when no room was active.
+`collab_stop` tells guests goodbye, withdraws the room from the local host
+registry (`omp collab list`), and cancels a `collab_start` still connecting;
+`stopped` is false only when there was neither a room nor a pending start.
 
 ```json
 { "id": "c1", "type": "collab_start", "access": "view" }
@@ -1683,8 +1685,9 @@ registry (`omp collab list`); `stopped` is false when no room was active.
   the room for good, or shutdown. It carries no links; call `collab_status` for
   them. Collab frames are not session events: `set_event_filter` never drops them.
 
-Closing stdin, or `pi.shutdown()`, ends an active room (guests get a goodbye)
-before the process exits.
+Closing stdin ends an active room (guests get a goodbye) and cancels a pending
+`collab_start` before accepted work drains, so no guest can drive a session
+whose client is gone; `pi.shutdown()` ends it before the process exits.
 
 ## Host URI Sub-Protocol
 

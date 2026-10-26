@@ -199,7 +199,7 @@ _decode_live_role = cast("Decoder[LiveRole]", literal(_LIVE_ROLE_VALUES))
 
 
 CollabAccess: TypeAlias = Literal["view", "control"]
-"""What a collab link grants: `view` watches the session; `control` also lets guests prompt, interrupt and answer dialogs."""
+"""What a collab link grants: `view` watches the session; `control` also lets guests prompt and interrupt it. Over RPC guests never see dialogs; they go to the RPC host."""
 _COLLAB_ACCESS_VALUES: Final[frozenset[str]] = frozenset({"view", "control"})
 _decode_collab_access = cast("Decoder[CollabAccess]", literal(_COLLAB_ACCESS_VALUES))
 
@@ -3545,7 +3545,7 @@ class WireClient:
         return parse_collab_status(self._command("collab_start", params, timeout=30), "collab_start")
 
     def collab_stop(self) -> bool:
-        """End this session's collab room, telling guests goodbye; false when none was active."""
+        """End this session's collab room, telling guests goodbye, and cancel a start still connecting; false when there was neither."""
         params: dict[str, object] = {}
         return required(expect_object(self._command("collab_stop", params), "collab_stop"), "stopped", decode_bool, "collab_stop")
 

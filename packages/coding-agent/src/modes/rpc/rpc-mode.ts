@@ -2976,6 +2976,9 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	hostUriBridge.clear("RPC client disconnected before host URI request completed");
 	hostCwdBridge.rejectAllPending("RPC client disconnected before the host answered a directory change");
 	await liveBridge.stop();
+	// The client is gone: no one watches the session, so end the room (guests could still prompt
+	// it while accepted work drains) and cancel a pending `collab_start` before draining.
+	await collabBridge.shutdown();
 	await inputDispatcher.drain();
 	// A backgrounded builtin (e.g. a /mcp reauth browser wait) must not park
 	// the drain: tear it down now that the client is gone.

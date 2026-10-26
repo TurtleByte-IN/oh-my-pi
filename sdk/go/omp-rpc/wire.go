@@ -5240,7 +5240,7 @@ func (v LiveEndEvent) MarshalJSON() ([]byte, error) {
 	return encodeObject(plain(v), `"type":"live_end"`, nil)
 }
 
-// What a collab link grants: `view` watches the session; `control` also lets guests prompt, interrupt and answer dialogs.
+// What a collab link grants: `view` watches the session; `control` also lets guests prompt and interrupt it. Over RPC guests never see dialogs; they go to the RPC host.
 type CollabAccess string
 
 const (
@@ -8358,7 +8358,7 @@ func (c Commands) CollabStart(ctx context.Context, p CollabStartCommand) (Collab
 	return out, err
 }
 
-// CollabStop sends "collab_stop": End this session's collab room, telling guests goodbye; false when none was active.
+// CollabStop sends "collab_stop": End this session's collab room, telling guests goodbye, and cancel a start still connecting; false when there was neither.
 func (c Commands) CollabStop(ctx context.Context) (bool, error) {
 	var out CollabStopResult
 	err := c.call(ctx, "collab_stop", nil, 0, &out)

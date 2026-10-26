@@ -4360,7 +4360,7 @@ pub struct LiveEndEvent {
 	pub error: Option<String>,
 }
 
-/// What a collab link grants: `view` watches the session; `control` also lets guests prompt, interrupt and answer dialogs.
+/// What a collab link grants: `view` watches the session; `control` also lets guests prompt and interrupt it. Over RPC guests never see dialogs; they go to the RPC host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CollabAccess {
 	#[serde(rename = "view")]
@@ -6933,7 +6933,7 @@ impl Command for CollabStartCommand {
 	}
 }
 
-/// End this session's collab room, telling guests goodbye; false when none was active.
+/// End this session's collab room, telling guests goodbye, and cancel a start still connecting; false when there was neither.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CollabStopCommand {}
 

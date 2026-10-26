@@ -13,6 +13,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { importRoomKey } from "@oh-my-pi/pi-coding-agent/collab/crypto";
+import { CollabHostStoppedError } from "@oh-my-pi/pi-coding-agent/collab/host";
 import { COLLAB_PROTO, parseCollabLink } from "@oh-my-pi/pi-coding-agent/collab/protocol";
 import * as registry from "@oh-my-pi/pi-coding-agent/collab/registry";
 import { CollabSocket } from "@oh-my-pi/pi-coding-agent/collab/relay-client";
@@ -170,11 +171,57 @@ describe("RPC collab hosting", () => {
 		expect(await registry.listCollabHosts({ dir: tmp })).toEqual([]);
 	});
 
-	it("collab_stop cancels a start still waiting for the relay", async () => {
+	it("collab_stop cancels a start not yet connecting and reports it stopped", async () => {
 		const starting = bridge.start();
-		await bridge.stop();
-		await expect(starting).rejects.toThrow();
+		expect(await bridge.stop()).toBe(true);
+		await expect(starting).rejects.toThrow(CollabHostStoppedError);
 		expect(bridge.status().active).toBe(false);
 		expect(await registry.listCollabHosts({ dir: tmp })).toEqual([]);
+	});
+
+	it("collab_stop aborts a relay connection still opening", async () => {
+		// A socket that stays CONNECTING: the relay never opens the room.
+		const connecting = Promise.withResolvers<void>();
+		globalThis.WebSocket = class StalledWebSocket {
+			static readonly CONNECTING = 0;
+			static readonly OPEN = 1;
+			static readonly CLOSING = 2;
+			static readonly CLOSED = 3;
+			binaryType = "blob";
+			bufferedAmount = 0;
+			readyState = 0;
+			onopen = null;
+			onmessage = null;
+			onerror = null;
+			onclose = null;
+			constructor() {
+				connecting.resolve();
+			}
+			addEventListener() {}
+			send() {}
+			ping() {}
+			close() {
+				this.readyState = 3;
+			}
+			terminate() {
+				this.readyState = 3;
+			}
+		} as unknown as typeof WebSocket;
+		const starting = bridge.start();
+		await connecting.promise;
+		expect(await bridge.stop()).toBe(true);
+		await expect(starting).rejects.toThrow(CollabHostStoppedError);
+		expect(frames.some(frame => frame.active)).toBe(false);
+		expect(bridge.status().active).toBe(false);
+		expect(publishSpy).not.toHaveBeenCalled();
+		expect(await registry.listCollabHosts({ dir: tmp })).toEqual([]);
+	});
+
+	it("shutdown cancels a start still connecting", async () => {
+		const starting = bridge.start();
+		await bridge.shutdown();
+		await expect(starting).rejects.toThrow(CollabHostStoppedError);
+		expect(frames.some(frame => frame.active)).toBe(false);
+		await expect(bridge.start()).rejects.toThrow(CollabHostStoppedError);
 	});
 });
