@@ -296,6 +296,17 @@
 				"clientOmit": []
 			},
 			{
+				"name": "set_host_cwd_change",
+				"doc": "Route `/wt` and `/move` through the host: when enabled they send `host_cwd_change_request` and follow the host's reply instead of changing directory on their own.",
+				"params": "SetHostCwdChangeParams",
+				"result": "SetHostCwdChangeResult",
+				"nullable": false,
+				"unwrap": "enabled",
+				"timeoutMs": null,
+				"completion": null,
+				"clientOmit": []
+			},
+			{
 				"name": "set_subagent_subscription",
 				"doc": "Select which subagent frames are forwarded.",
 				"params": "SetSubagentSubscriptionParams",
@@ -5771,6 +5782,95 @@
 			],
 			"description": "Completes a pending host URI request."
 		},
+		"HostCwdChangeReason": {
+			"enum": [
+				"worktree",
+				"move"
+			],
+			"type": "string",
+			"description": "Which command wants to change the session directory: `/wt` (`worktree`) or `/move` (`move`)."
+		},
+		"HostCwdChangeRequest": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"const": "host_cwd_change_request"
+				},
+				"id": {
+					"type": "string"
+				},
+				"reason": {
+					"$ref": "#/$defs/HostCwdChangeReason"
+				},
+				"cwd": {
+					"type": "string",
+					"description": "The session's current working directory."
+				},
+				"path": {
+					"type": "string",
+					"description": "`move` only: the resolved, existing target directory."
+				},
+				"branch": {
+					"type": "string",
+					"description": "`worktree` only: the branch the user asked for, or a generated default."
+				}
+			},
+			"required": [
+				"type",
+				"id",
+				"reason",
+				"cwd"
+			],
+			"description": "Asks the host to own a session directory change; sent only after `set_host_cwd_change` enabled it. For `worktree` the host creates the worktree; for `move` it approves the target."
+		},
+		"HostCwdChangeCancelRequest": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"const": "host_cwd_change_cancel"
+				},
+				"id": {
+					"type": "string"
+				},
+				"targetId": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"type",
+				"id",
+				"targetId"
+			],
+			"description": "The command waiting on `targetId` was aborted; the server ignores any later result for it."
+		},
+		"HostCwdChangeResult": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"const": "host_cwd_change_result"
+				},
+				"id": {
+					"type": "string"
+				},
+				"accepted": {
+					"type": "boolean"
+				},
+				"cwd": {
+					"type": "string",
+					"description": "Absolute existing directory to move the session into. Required to accept `worktree`; defaults to the request `path` for `move`."
+				},
+				"error": {
+					"type": "string",
+					"description": "Reason shown to the user when `accepted` is false."
+				}
+			},
+			"required": [
+				"type",
+				"id",
+				"accepted"
+			],
+			"description": "Host reply to a `host_cwd_change_request`: on accept the server moves the session into `cwd`; on reject it stays put."
+		},
 		"RpcHostRequest": {
 			"anyOf": [
 				{
@@ -5784,9 +5884,15 @@
 				},
 				{
 					"$ref": "#/$defs/HostUriCancelRequest"
+				},
+				{
+					"$ref": "#/$defs/HostCwdChangeRequest"
+				},
+				{
+					"$ref": "#/$defs/HostCwdChangeCancelRequest"
 				}
 			],
-			"description": "Server request for host-owned tools and URI schemes, discriminated by `type`."
+			"description": "Server request for host-owned tools, URI schemes, and directory changes, discriminated by `type`."
 		},
 		"RpcInbound": {
 			"anyOf": [
@@ -5801,6 +5907,9 @@
 				},
 				{
 					"$ref": "#/$defs/HostUriResult"
+				},
+				{
+					"$ref": "#/$defs/HostCwdChangeResult"
 				}
 			],
 			"description": "Non-command frame the host sends, discriminated by `type`."
@@ -6414,6 +6523,28 @@
 			},
 			"required": [
 				"schemes"
+			]
+		},
+		"SetHostCwdChangeParams": {
+			"type": "object",
+			"properties": {
+				"enabled": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"enabled"
+			]
+		},
+		"SetHostCwdChangeResult": {
+			"type": "object",
+			"properties": {
+				"enabled": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"enabled"
 			]
 		},
 		"SetSubagentSubscriptionParams": {

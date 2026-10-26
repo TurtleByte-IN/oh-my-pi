@@ -4816,13 +4816,72 @@ pub struct HostUriResult {
 	pub error: Option<String>,
 }
 
-/// Server request for host-owned tools and URI schemes, discriminated by `type`.
+/// Which command wants to change the session directory: `/wt` (`worktree`) or `/move` (`move`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum HostCwdChangeReason {
+	#[serde(rename = "worktree")]
+	Worktree,
+	#[serde(rename = "move")]
+	Move,
+}
+
+impl HostCwdChangeReason {
+	/// Wire value.
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Worktree => "worktree",
+			Self::Move => "move",
+		}
+	}
+}
+
+/// Asks the host to own a session directory change; sent only after `set_host_cwd_change` enabled it. For `worktree` the host creates the worktree; for `move` it approves the target.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostCwdChangeRequest {
+	pub id: String,
+	pub reason: HostCwdChangeReason,
+	/// The session's current working directory.
+	pub cwd: String,
+	/// `move` only: the resolved, existing target directory.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<String>,
+	/// `worktree` only: the branch the user asked for, or a generated default.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub branch: Option<String>,
+}
+
+/// The command waiting on `targetId` was aborted; the server ignores any later result for it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostCwdChangeCancelRequest {
+	pub id: String,
+	#[serde(rename = "targetId")]
+	pub target_id: String,
+}
+
+/// Host reply to a `host_cwd_change_request`: on accept the server moves the session into `cwd`; on reject it stays put.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostCwdChangeResult {
+	pub id: String,
+	pub accepted: bool,
+	/// Absolute existing directory to move the session into. Required to accept `worktree`; defaults to the request `path` for `move`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cwd: Option<String>,
+	/// Reason shown to the user when `accepted` is false.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub error: Option<String>,
+}
+
+/// Server request for host-owned tools, URI schemes, and directory changes, discriminated by `type`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RpcHostRequest {
 	HostToolCall(HostToolCallRequest),
 	HostToolCancel(HostToolCancelRequest),
 	HostUriRequest(HostUriRequest),
 	HostUriCancel(HostUriCancelRequest),
+	/// Asks the host to own a session directory change; sent only after `set_host_cwd_change` enabled it. For `worktree` the host creates the worktree; for `move` it approves the target.
+	HostCwdChangeRequest(HostCwdChangeRequest),
+	/// The command waiting on `targetId` was aborted; the server ignores any later result for it.
+	HostCwdChangeCancel(HostCwdChangeCancelRequest),
 }
 
 impl RpcHostRequest {
@@ -4833,6 +4892,8 @@ impl RpcHostRequest {
 			Some("host_tool_cancel") => |value| serde_json::from_value(value).map(Self::HostToolCancel),
 			Some("host_uri_request") => |value| serde_json::from_value(value).map(Self::HostUriRequest),
 			Some("host_uri_cancel") => |value| serde_json::from_value(value).map(Self::HostUriCancel),
+			Some("host_cwd_change_request") => |value| serde_json::from_value(value).map(Self::HostCwdChangeRequest),
+			Some("host_cwd_change_cancel") => |value| serde_json::from_value(value).map(Self::HostCwdChangeCancel),
 			other => {
 				return Err(serde_json::Error::custom(format!("unknown RpcHostRequest type {other:?}")));
 			}
@@ -4848,6 +4909,8 @@ impl Serialize for RpcHostRequest {
 			Self::HostToolCancel(member) => serialize_tagged(member, &[("type", "host_tool_cancel")], serializer),
 			Self::HostUriRequest(member) => serialize_tagged(member, &[("type", "host_uri_request")], serializer),
 			Self::HostUriCancel(member) => serialize_tagged(member, &[("type", "host_uri_cancel")], serializer),
+			Self::HostCwdChangeRequest(member) => serialize_tagged(member, &[("type", "host_cwd_change_request")], serializer),
+			Self::HostCwdChangeCancel(member) => serialize_tagged(member, &[("type", "host_cwd_change_cancel")], serializer),
 		}
 	}
 }
@@ -4869,6 +4932,8 @@ pub enum RpcInbound {
 	HostToolResult(HostToolResult),
 	/// Completes a pending host URI request.
 	HostUriResult(HostUriResult),
+	/// Host reply to a `host_cwd_change_request`: on accept the server moves the session into `cwd`; on reject it stays put.
+	HostCwdChangeResult(HostCwdChangeResult),
 }
 
 impl RpcInbound {
@@ -4879,6 +4944,7 @@ impl RpcInbound {
 			Some("host_tool_update") => |value| serde_json::from_value(value).map(Self::HostToolUpdate),
 			Some("host_tool_result") => |value| serde_json::from_value(value).map(Self::HostToolResult),
 			Some("host_uri_result") => |value| serde_json::from_value(value).map(Self::HostUriResult),
+			Some("host_cwd_change_result") => |value| serde_json::from_value(value).map(Self::HostCwdChangeResult),
 			other => {
 				return Err(serde_json::Error::custom(format!("unknown RpcInbound type {other:?}")));
 			}
@@ -4894,6 +4960,7 @@ impl Serialize for RpcInbound {
 			Self::HostToolUpdate(member) => serialize_tagged(member, &[("type", "host_tool_update")], serializer),
 			Self::HostToolResult(member) => serialize_tagged(member, &[("type", "host_tool_result")], serializer),
 			Self::HostUriResult(member) => serialize_tagged(member, &[("type", "host_uri_result")], serializer),
+			Self::HostCwdChangeResult(member) => serialize_tagged(member, &[("type", "host_cwd_change_result")], serializer),
 		}
 	}
 }
@@ -5081,7 +5148,7 @@ impl<'de> Deserialize<'de> for RpcNotification {
 pub enum RpcServerFrame {
 	/// Response to a command, correlated by `id`.
 	Response(RpcResponse),
-	/// Server request for host-owned tools and URI schemes, discriminated by `type`.
+	/// Server request for host-owned tools, URI schemes, and directory changes, discriminated by `type`.
 	RpcHostRequest(RpcHostRequest),
 	/// Unsolicited outbound frame (everything except responses and host tool/URI requests), discriminated by `type`.
 	RpcNotification(RpcNotification),
@@ -5094,7 +5161,7 @@ impl RpcServerFrame {
 	pub fn from_value(value: Value) -> Result<Self, serde_json::Error> {
 		let decode: fn(Value) -> Result<Self, serde_json::Error> = match value.get("type").and_then(Value::as_str) {
 			Some("response") => |value| serde_json::from_value(value).map(Self::Response),
-			Some("host_tool_call" | "host_tool_cancel" | "host_uri_request" | "host_uri_cancel") => |value| serde_json::from_value(value).map(Self::RpcHostRequest),
+			Some("host_tool_call" | "host_tool_cancel" | "host_uri_request" | "host_uri_cancel" | "host_cwd_change_request" | "host_cwd_change_cancel") => |value| serde_json::from_value(value).map(Self::RpcHostRequest),
 			Some("ready" | "prompt_result" | "session_settled" | "extension_error" | "extension_ui_request" | "available_commands_update" | "subagent_lifecycle" | "subagent_progress" | "subagent_event" | "live_phase" | "live_levels" | "live_transcript" | "live_end" | "btw_delta" | "btw_record" | "command_output" | "session_info_update" | "config_update" | "rpc_frame_error" | "agent_start" | "agent_end" | "turn_start" | "turn_end" | "message_start" | "message_update" | "message_end" | "tool_execution_start" | "tool_execution_update" | "tool_stream_update" | "tool_execution_end" | "auto_compaction_start" | "auto_compaction_end" | "manual_compaction_start" | "manual_compaction_end" | "auto_retry_start" | "auto_retry_end" | "cache_warming_start" | "cache_warming_end" | "retry_fallback_applied" | "retry_fallback_succeeded" | "model_changed" | "config_warnings_changed" | "advisor_cost_changed" | "advisor_yielded" | "ttsr_triggered" | "todo_reminder" | "todo_auto_clear" | "irc_message" | "notice" | "thinking_level_changed" | "goal_updated" | "queue_update") => |value| serde_json::from_value(value).map(Self::RpcNotification),
 			_ => |value| Ok(Self::Unknown(value)),
 		};
@@ -5321,6 +5388,16 @@ pub struct SetHostUriSchemesParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetHostUriSchemesResult {
 	pub schemes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHostCwdChangeParams {
+	pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHostCwdChangeResult {
+	pub enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -6503,6 +6580,22 @@ impl Command for SetHostUriSchemesCommand {
 
 	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
 		serde_json::from_value::<SetHostUriSchemesResult>(data.unwrap_or_else(|| Value::Object(Map::new()))).map(|result| result.schemes)
+	}
+}
+
+/// Route `/wt` and `/move` through the host: when enabled they send `host_cwd_change_request` and follow the host's reply instead of changing directory on their own.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHostCwdChangeCommand {
+	pub enabled: bool,
+}
+
+impl Command for SetHostCwdChangeCommand {
+	const NAME: &'static str = "set_host_cwd_change";
+	const TIMEOUT_MS: Option<u64> = None;
+	type Output = bool;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<SetHostCwdChangeResult>(data.unwrap_or_else(|| Value::Object(Map::new()))).map(|result| result.enabled)
 	}
 }
 

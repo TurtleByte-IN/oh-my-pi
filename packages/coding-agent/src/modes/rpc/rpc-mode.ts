@@ -74,6 +74,7 @@ import {
 } from "../persistence-failure";
 import { initializeExtensions } from "../runtime-init";
 import { cfgSpellingAutocomplete } from "../settings";
+import { isRpcHostCwdChangeResult, RpcHostCwdBridge } from "./host-cwd";
 import { isRpcHostToolResult, isRpcHostToolUpdate, RpcHostToolBridge } from "./host-tools";
 import { isRpcHostUriResult, RpcHostUriBridge } from "./host-uris";
 import { MAX_RPC_FRAME_BYTES, MAX_RPC_REASSEMBLED_BYTES, RpcFrameEncoder } from "./rpc-frame";
@@ -104,6 +105,9 @@ import type {
 	RpcHostToolDefinition,
 	RpcHostToolResult,
 	RpcHostToolUpdate,
+	RpcHostCwdChangeCancelRequest,
+	RpcHostCwdChangeRequest,
+	RpcHostCwdChangeResult,
 	RpcHostUriCancelRequest,
 	RpcHostUriRequest,
 	RpcHostUriResult,
@@ -231,6 +235,8 @@ type RpcOutput = (
 		| RpcHostToolCancelRequest
 		| RpcHostUriRequest
 		| RpcHostUriCancelRequest
+		| RpcHostCwdChangeRequest
+		| RpcHostCwdChangeCancelRequest
 		| object,
 ) => void;
 
@@ -379,6 +385,7 @@ export interface RpcInputFrameDeps {
 	onHostToolResult: (frame: RpcHostToolResult) => void;
 	onHostToolUpdate: (frame: RpcHostToolUpdate) => void;
 	onHostUriResult: (frame: RpcHostUriResult) => void;
+	onHostCwdChangeResult: (frame: RpcHostCwdChangeResult) => void;
 }
 
 /**
@@ -412,6 +419,11 @@ export function dispatchRpcControlFrame(parsed: unknown, deps: RpcInputFrameDeps
 
 	if (isRpcHostUriResult(parsed)) {
 		deps.onHostUriResult(parsed);
+		return true;
+	}
+
+	if (isRpcHostCwdChangeResult(parsed)) {
+		deps.onHostCwdChangeResult(parsed);
 		return true;
 	}
 
@@ -1479,6 +1491,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	const pendingExtensionRequests = new RpcPendingExtensionRequests();
 	const hostToolBridge = new RpcHostToolBridge(output);
 	const hostUriBridge = new RpcHostUriBridge(output);
+	const hostCwdBridge = new RpcHostCwdBridge(output);
 	// Live frames go straight to `output`, so `set_event_filter` (session events only) never drops them.
 	const liveBridge = new RpcLiveBridge(session, output, createLiveSession);
 	const subagentRegistry = subagentEventBus ? new RpcSubagentRegistry(subagentEventBus, output) : undefined;
@@ -1907,6 +1920,9 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 					notifyConfigChanged: async () => {
 						output({ type: "config_update", model: session.model, thinkingLevel: session.thinkingLevel });
 					},
+					requestHostCwdChange: hostCwdBridge.enabled
+						? (change, signal) => hostCwdBridge.request(change, signal)
+						: undefined,
 				});
 				if (!backgroundedBuiltin) builtinCommandAborts.delete(builtinAbort);
 				if (!isCurrent()) return "cancelled";
@@ -2354,6 +2370,13 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 				} catch (err) {
 					return error(id, "set_host_uri_schemes", err instanceof Error ? err.message : String(err));
 				}
+			}
+
+			case "set_host_cwd_change": {
+				if (typeof command.enabled !== "boolean") {
+					return error(id, "set_host_cwd_change", "set_host_cwd_change requires boolean enabled");
+				}
+				return success(id, "set_host_cwd_change", { enabled: hostCwdBridge.setEnabled(command.enabled) });
 			}
 
 			case "set_subagent_subscription": {
@@ -2859,6 +2882,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 		onHostToolResult: frame => hostToolBridge.handleResult(frame),
 		onHostToolUpdate: frame => hostToolBridge.handleUpdate(frame),
 		onHostUriResult: frame => hostUriBridge.handleResult(frame),
+		onHostCwdChangeResult: frame => hostCwdBridge.handleResult(frame),
 	};
 
 	const inputDispatcher = new RpcInputDispatcher({
@@ -2884,6 +2908,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	pendingExtensionRequests.rejectAll("RPC client disconnected before extension UI response completed");
 	hostToolBridge.close("RPC client disconnected before host tool execution completed");
 	hostUriBridge.clear("RPC client disconnected before host URI request completed");
+	hostCwdBridge.rejectAllPending("RPC client disconnected before the host answered a directory change");
 	await liveBridge.stop();
 	await inputDispatcher.drain();
 	// A backgrounded builtin (e.g. a /mcp reauth browser wait) must not park

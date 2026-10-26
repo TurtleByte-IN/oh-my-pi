@@ -17,6 +17,7 @@ function deps(handleCommand: RpcInputFrameDeps["handleCommand"]): RpcInputFrameD
 		onHostToolResult: () => {},
 		onHostToolUpdate: () => {},
 		onHostUriResult: () => {},
+		onHostCwdChangeResult: () => {},
 	};
 }
 

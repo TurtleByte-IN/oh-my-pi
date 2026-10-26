@@ -1449,11 +1449,45 @@ export interface HostUriResult {
 	error?: string;
 }
 
-/** Server request for host-owned tools and URI schemes, discriminated by `type`. */
-export type RpcHostRequest = HostToolCallRequest | HostToolCancelRequest | HostUriRequest | HostUriCancelRequest;
+/** Which command wants to change the session directory: `/wt` (`worktree`) or `/move` (`move`). */
+export type HostCwdChangeReason = "worktree" | "move";
+
+/** Asks the host to own a session directory change; sent only after `set_host_cwd_change` enabled it. For `worktree` the host creates the worktree; for `move` it approves the target. */
+export interface HostCwdChangeRequest {
+	type: "host_cwd_change_request";
+	id: string;
+	reason: HostCwdChangeReason;
+	/** The session's current working directory. */
+	cwd: string;
+	/** `move` only: the resolved, existing target directory. */
+	path?: string;
+	/** `worktree` only: the branch the user asked for, or a generated default. */
+	branch?: string;
+}
+
+/** The command waiting on `targetId` was aborted; the server ignores any later result for it. */
+export interface HostCwdChangeCancelRequest {
+	type: "host_cwd_change_cancel";
+	id: string;
+	targetId: string;
+}
+
+/** Host reply to a `host_cwd_change_request`: on accept the server moves the session into `cwd`; on reject it stays put. */
+export interface HostCwdChangeResult {
+	type: "host_cwd_change_result";
+	id: string;
+	accepted: boolean;
+	/** Absolute existing directory to move the session into. Required to accept `worktree`; defaults to the request `path` for `move`. */
+	cwd?: string;
+	/** Reason shown to the user when `accepted` is false. */
+	error?: string;
+}
+
+/** Server request for host-owned tools, URI schemes, and directory changes, discriminated by `type`. */
+export type RpcHostRequest = HostToolCallRequest | HostToolCancelRequest | HostUriRequest | HostUriCancelRequest | HostCwdChangeRequest | HostCwdChangeCancelRequest;
 
 /** Non-command frame the host sends, discriminated by `type`. */
-export type RpcInbound = ExtensionUiResponse | HostToolUpdate | HostToolResult | HostUriResult;
+export type RpcInbound = ExtensionUiResponse | HostToolUpdate | HostToolResult | HostUriResult | HostCwdChangeResult;
 
 /** Response to a command, correlated by `id`. */
 export interface RpcResponse {
@@ -1646,6 +1680,14 @@ export interface SetHostUriSchemesParams {
 
 export interface SetHostUriSchemesResult {
 	schemes: string[];
+}
+
+export interface SetHostCwdChangeParams {
+	enabled: boolean;
+}
+
+export interface SetHostCwdChangeResult {
+	enabled: boolean;
 }
 
 export interface SetSubagentSubscriptionParams {
@@ -1909,6 +1951,7 @@ export interface RpcWireCommands {
 	set_todos: { params: SetTodosParams; result: SetTodosResult };
 	set_host_tools: { params: SetHostToolsParams; result: SetHostToolsResult };
 	set_host_uri_schemes: { params: SetHostUriSchemesParams; result: SetHostUriSchemesResult };
+	set_host_cwd_change: { params: SetHostCwdChangeParams; result: SetHostCwdChangeResult };
 	set_subagent_subscription: { params: SetSubagentSubscriptionParams; result: SetSubagentSubscriptionResult };
 	set_event_filter: { params: SetEventFilterParams; result: SetEventFilterResult };
 	get_subagents: { params: undefined; result: GetSubagentsResult };

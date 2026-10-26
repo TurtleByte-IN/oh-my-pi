@@ -29,6 +29,9 @@ import type {
 	RpcCommand,
 	RpcExtensionUIRequest,
 	RpcExtensionUIResponse,
+	RpcHostCwdChangeCancelRequest,
+	RpcHostCwdChangeRequest,
+	RpcHostCwdChangeResult,
 	RpcHostToolCallRequest,
 	RpcHostToolCancelRequest,
 	RpcHostToolDefinition,
@@ -216,6 +219,8 @@ export type Frames = Assert<
 		hostToolCancel: Outbound<RpcHostToolCancelRequest, Wire.HostToolCancelRequest>;
 		hostUriRequest: Outbound<RpcHostUriRequest, Wire.HostUriRequest>;
 		hostUriCancel: Outbound<RpcHostUriCancelRequest, Wire.HostUriCancelRequest>;
+		hostCwdChangeRequest: Outbound<RpcHostCwdChangeRequest, Wire.HostCwdChangeRequest>;
+		hostCwdChangeCancel: Outbound<RpcHostCwdChangeCancelRequest, Wire.HostCwdChangeCancelRequest>;
 		askQuestion: Outbound<RpcAskDialogQuestion, Wire.AskQuestion>;
 		askOption: Outbound<RpcAskDialogQuestion["options"][number], Wire.AskOption>;
 		askAnswer: Inbound<Wire.AskAnswer, Extract<RpcExtensionUIResponse, { answers: unknown }>["answers"][number]>;
@@ -225,6 +230,7 @@ export type Frames = Assert<
 		hostToolResult: Inbound<Wire.HostToolResult, RpcHostToolResult>;
 		hostToolPayload: Inbound<Wire.HostToolResultPayload, RpcHostToolResult["result"]>;
 		hostUriResult: Inbound<Wire.HostUriResult, RpcHostUriResult>;
+		hostCwdChangeResult: Inbound<Wire.HostCwdChangeResult, RpcHostCwdChangeResult>;
 		uiValue: Inbound<Wire.ValueUiResponse, Extract<RpcExtensionUIResponse, { value: unknown }>>;
 		uiConfirm: Inbound<Wire.ConfirmUiResponse, Extract<RpcExtensionUIResponse, { confirmed: unknown }>>;
 		uiCancel: Inbound<Wire.CancelUiResponse, Extract<RpcExtensionUIResponse, { cancelled: unknown }>>;
@@ -236,7 +242,11 @@ export type Frames = Assert<
 export type InboundSet = Assert<
 	Same<
 		Wire.RpcInbound["type"],
-		RpcExtensionUIResponse["type"] | RpcHostToolUpdate["type"] | RpcHostToolResult["type"] | RpcHostUriResult["type"]
+		| RpcExtensionUIResponse["type"]
+		| RpcHostToolUpdate["type"]
+		| RpcHostToolResult["type"]
+		| RpcHostUriResult["type"]
+		| RpcHostCwdChangeResult["type"]
 	>
 >;
 

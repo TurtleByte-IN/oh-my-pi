@@ -3371,6 +3371,12 @@ class WireClient:
         params: dict[str, object] = {}
         return parse_session_tree(self._command("get_tree", params), "get_tree")
 
+    def set_host_cwd_change(self, enabled: bool) -> bool:
+        """Route `/wt` and `/move` through the host: when enabled they send `host_cwd_change_request` and follow the host's reply instead of changing directory on their own."""
+        params: dict[str, object] = {}
+        params["enabled"] = enabled
+        return required(expect_object(self._command("set_host_cwd_change", params), "set_host_cwd_change"), "enabled", decode_bool, "set_host_cwd_change")
+
     def set_subagent_subscription(self, level: SubagentSubscriptionLevel) -> SubagentSubscriptionLevel:
         """Select which subagent frames are forwarded."""
         params: dict[str, object] = {}

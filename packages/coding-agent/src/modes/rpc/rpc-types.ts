@@ -83,6 +83,7 @@ export type RpcCommand =
 	| { id?: string; type: "set_todos"; phases: TodoPhase[] }
 	| { id?: string; type: "set_host_tools"; tools: RpcHostToolDefinition[] }
 	| { id?: string; type: "set_host_uri_schemes"; schemes: RpcHostUriSchemeDefinition[] }
+	| { id?: string; type: "set_host_cwd_change"; enabled: boolean }
 	| { id?: string; type: "set_subagent_subscription"; level: RpcSubagentSubscriptionLevel }
 	| { id?: string; type: "set_event_filter"; events: string[] | null; messageUpdates?: RpcMessageUpdates }
 	| { id?: string; type: "get_subagents" }
@@ -468,6 +469,7 @@ export type RpcResponse =
 	| { id?: string; type: "response"; command: "set_todos"; success: true; data: { todoPhases: TodoPhase[] } }
 	| { id?: string; type: "response"; command: "set_host_tools"; success: true; data: { toolNames: string[] } }
 	| { id?: string; type: "response"; command: "set_host_uri_schemes"; success: true; data: { schemes: string[] } }
+	| { id?: string; type: "response"; command: "set_host_cwd_change"; success: true; data: { enabled: boolean } }
 	| {
 			id?: string;
 			type: "response";
@@ -901,6 +903,44 @@ export interface RpcHostUriResult {
 	/** When true, surface the result content as an error to the caller. */
 	isError?: boolean;
 	/** Optional error message; preferred over `content` for error surfacing. */
+	error?: string;
+}
+
+// ============================================================================
+// Host CWD Change Frames (bidirectional)
+// ============================================================================
+
+/** Which slash command wants the session directory changed. */
+export type RpcHostCwdChangeReason = "worktree" | "move";
+
+/** Emitted by the RPC server (after `set_host_cwd_change`) so the host owns a `/wt` or `/move`. */
+export interface RpcHostCwdChangeRequest {
+	type: "host_cwd_change_request";
+	id: string;
+	reason: RpcHostCwdChangeReason;
+	/** The session's current working directory. */
+	cwd: string;
+	/** `move` only: the resolved, existing target directory. */
+	path?: string;
+	/** `worktree` only: the requested (or generated default) branch name. */
+	branch?: string;
+}
+
+/** Emitted by the RPC server when the command waiting on a cwd change was aborted. */
+export interface RpcHostCwdChangeCancelRequest {
+	type: "host_cwd_change_cancel";
+	id: string;
+	targetId: string;
+}
+
+/** Sent by the host to answer a pending cwd change request. */
+export interface RpcHostCwdChangeResult {
+	type: "host_cwd_change_result";
+	id: string;
+	accepted: boolean;
+	/** Directory to move into; required to accept `worktree`, defaults to the request `path` for `move`. */
+	cwd?: string;
+	/** Shown to the user when `accepted` is false. */
 	error?: string;
 }
 
