@@ -1952,6 +1952,29 @@ func (v *CacheWarmingMode) UnmarshalJSON(data []byte) error {
 	return unknownValue("CacheWarmingMode", s)
 }
 
+// `tools.approvalMode`: the highest tool tier that runs without asking (the `--approval-mode` choices).
+type ApprovalMode string
+
+const (
+	ApprovalModeAlwaysAsk       ApprovalMode = "always-ask"
+	ApprovalModeAlwaysAskCached ApprovalMode = "always-ask-cached"
+	ApprovalModeWrite           ApprovalMode = "write"
+	ApprovalModeYolo            ApprovalMode = "yolo"
+)
+
+func (v *ApprovalMode) UnmarshalJSON(data []byte) error {
+	s, err := decodeString(data, "ApprovalMode")
+	if err != nil {
+		return err
+	}
+	switch value := ApprovalMode(s); value {
+	case ApprovalModeAlwaysAsk, ApprovalModeAlwaysAskCached, ApprovalModeWrite, ApprovalModeYolo:
+		*v = value
+		return nil
+	}
+	return unknownValue("ApprovalMode", s)
+}
+
 // `set_event_filter` projection: `delta` drops the accumulated snapshots from `message_update`.
 type MessageUpdates string
 
@@ -6875,6 +6898,93 @@ func (v *SetAskDialogResult) decodeFrom(raw map[string]json.RawMessage) error {
 	return nil
 }
 
+type SetApprovalModeResult struct {
+	Mode ApprovalMode `json:"mode"`
+}
+
+func (v *SetApprovalModeResult) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "SetApprovalModeResult", v.decodeFrom)
+}
+
+func (v *SetApprovalModeResult) decodeFrom(raw map[string]json.RawMessage) error {
+	var out SetApprovalModeResult
+	d := fieldDecoder{raw: raw, owner: "SetApprovalModeResult"}
+	d.required("mode", &out.Mode)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+type SetAdvisorResult struct {
+	// The session's advisor setting after the call.
+	Enabled bool `json:"enabled"`
+	// Whether an advisor is running; false when no model is assigned to the `advisor` role.
+	Active bool `json:"active"`
+}
+
+func (v *SetAdvisorResult) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "SetAdvisorResult", v.decodeFrom)
+}
+
+func (v *SetAdvisorResult) decodeFrom(raw map[string]json.RawMessage) error {
+	var out SetAdvisorResult
+	d := fieldDecoder{raw: raw, owner: "SetAdvisorResult"}
+	d.required("enabled", &out.Enabled)
+	d.required("active", &out.Active)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+type SetPrewalkResult struct {
+	// Whether a handoff is pending after the call.
+	Armed bool `json:"armed"`
+	// Provider of the pending handoff's target model.
+	Provider *string `json:"provider,omitempty"`
+	// Id of the pending handoff's target model.
+	ModelID *string `json:"modelId,omitempty"`
+}
+
+func (v *SetPrewalkResult) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "SetPrewalkResult", v.decodeFrom)
+}
+
+func (v *SetPrewalkResult) decodeFrom(raw map[string]json.RawMessage) error {
+	var out SetPrewalkResult
+	d := fieldDecoder{raw: raw, owner: "SetPrewalkResult"}
+	d.required("armed", &out.Armed)
+	d.optional("provider", &out.Provider)
+	d.optional("modelId", &out.ModelID)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+type SetToolEnabledResult struct {
+	Enabled bool `json:"enabled"`
+}
+
+func (v *SetToolEnabledResult) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "SetToolEnabledResult", v.decodeFrom)
+}
+
+func (v *SetToolEnabledResult) decodeFrom(raw map[string]json.RawMessage) error {
+	var out SetToolEnabledResult
+	d := fieldDecoder{raw: raw, owner: "SetToolEnabledResult"}
+	d.required("enabled", &out.Enabled)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
 type GetAvailableCommandsResult struct {
 	Commands []AvailableSlashCommand `json:"commands"`
 }
@@ -7534,6 +7644,55 @@ type SetAskDialogCommand struct {
 func (c Commands) SetAskDialog(ctx context.Context, p SetAskDialogCommand) (bool, error) {
 	var out SetAskDialogResult
 	err := c.call(ctx, "set_ask_dialog", p, 0, &out)
+	return out.Enabled, err
+}
+
+// SetApprovalModeCommand holds the parameters of "set_approval_mode".
+type SetApprovalModeCommand struct {
+	Mode ApprovalMode `json:"mode"`
+}
+
+// SetApprovalMode sends "set_approval_mode": Set `tools.approvalMode` for this process without writing config, like relaunching with `--approval-mode`; returns the applied mode.
+func (c Commands) SetApprovalMode(ctx context.Context, p SetApprovalModeCommand) (ApprovalMode, error) {
+	var out SetApprovalModeResult
+	err := c.call(ctx, "set_approval_mode", p, 0, &out)
+	return out.Mode, err
+}
+
+// SetAdvisorCommand holds the parameters of "set_advisor".
+type SetAdvisorCommand struct {
+	Enabled bool `json:"enabled"`
+}
+
+// SetAdvisor sends "set_advisor": Turn the advisor on or off for this session, like `/advisor on|off`.
+func (c Commands) SetAdvisor(ctx context.Context, p SetAdvisorCommand) (SetAdvisorResult, error) {
+	var out SetAdvisorResult
+	err := c.call(ctx, "set_advisor", p, 0, &out)
+	return out, err
+}
+
+// SetPrewalkCommand holds the parameters of "set_prewalk".
+type SetPrewalkCommand struct {
+	Armed bool `json:"armed"`
+}
+
+// SetPrewalk sends "set_prewalk": Arm the one-shot handoff to the `smol` role model at the next edit/write, or cancel it, like `/prewalk` and `/prewalk off`.
+func (c Commands) SetPrewalk(ctx context.Context, p SetPrewalkCommand) (SetPrewalkResult, error) {
+	var out SetPrewalkResult
+	err := c.call(ctx, "set_prewalk", p, 0, &out)
+	return out, err
+}
+
+// SetToolEnabledCommand holds the parameters of "set_tool_enabled".
+type SetToolEnabledCommand struct {
+	Tool    string `json:"tool"`
+	Enabled bool   `json:"enabled"`
+}
+
+// SetToolEnabled sends "set_tool_enabled": Enable or disable one registered tool for this session; returns whether it is now enabled.
+func (c Commands) SetToolEnabled(ctx context.Context, p SetToolEnabledCommand) (bool, error) {
+	var out SetToolEnabledResult
+	err := c.call(ctx, "set_tool_enabled", p, 0, &out)
 	return out.Enabled, err
 }
 

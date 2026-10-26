@@ -6679,6 +6679,11 @@ export class AgentSession implements SettingsScope {
 		return this.#tools.getEnabledToolNames();
 	}
 
+	/** Whether the session was created with `autoApprove` (`--auto-approve`/`--yolo`); tool calls then run as yolo whatever `tools.approvalMode` says. */
+	get autoApprove(): boolean {
+		return this.#tools.autoApprove;
+	}
+
 	/** Names of dynamic tools mounted under `xd://`. */
 	getMountedXdevToolNames(): string[] {
 		return this.#tools.getMountedXdevToolNames();

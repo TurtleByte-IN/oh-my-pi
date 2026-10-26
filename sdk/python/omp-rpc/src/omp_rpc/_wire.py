@@ -87,6 +87,12 @@ _CACHE_WARMING_MODE_VALUES: Final[frozenset[str]] = frozenset({"off", "streaming
 _decode_cache_warming_mode = cast("Decoder[CacheWarmingMode]", literal(_CACHE_WARMING_MODE_VALUES))
 
 
+ApprovalMode: TypeAlias = Literal["always-ask", "always-ask-cached", "write", "yolo"]
+"""`tools.approvalMode`: the highest tool tier that runs without asking (the `--approval-mode` choices)."""
+_APPROVAL_MODE_VALUES: Final[frozenset[str]] = frozenset({"always-ask", "always-ask-cached", "write", "yolo"})
+_decode_approval_mode = cast("Decoder[ApprovalMode]", literal(_APPROVAL_MODE_VALUES))
+
+
 MessageUpdates: TypeAlias = Literal["full", "delta"]
 """`set_event_filter` projection: `delta` drops the accumulated snapshots from `message_update`."""
 _MESSAGE_UPDATES_VALUES: Final[frozenset[str]] = frozenset({"full", "delta"})
@@ -1587,6 +1593,24 @@ class NegotiateProtocolResult:
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
+class SetAdvisorResult:
+    enabled: bool
+    """The session's advisor setting after the call."""
+    active: bool
+    """Whether an advisor is running; false when no model is assigned to the `advisor` role."""
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class SetPrewalkResult:
+    armed: bool
+    """Whether a handoff is pending after the call."""
+    provider: str | None = None
+    """Provider of the pending handoff's target model."""
+    model_id: str | None = None
+    """Id of the pending handoff's target model."""
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
 class LogoutResult:
     remaining_source: str | None = None
 
@@ -3000,6 +3024,23 @@ def parse_negotiate_protocol_result(value: object, path: str = "NegotiateProtoco
     )
 
 
+def parse_set_advisor_result(value: object, path: str = "SetAdvisorResult") -> SetAdvisorResult:
+    payload = expect_object(value, path)
+    return SetAdvisorResult(
+        enabled=required(payload, "enabled", decode_bool, path),
+        active=required(payload, "active", decode_bool, path),
+    )
+
+
+def parse_set_prewalk_result(value: object, path: str = "SetPrewalkResult") -> SetPrewalkResult:
+    payload = expect_object(value, path)
+    return SetPrewalkResult(
+        armed=required(payload, "armed", decode_bool, path),
+        provider=optional(payload, "provider", decode_str, path),
+        model_id=optional(payload, "modelId", decode_str, path),
+    )
+
+
 def parse_logout_result(value: object, path: str = "LogoutResult") -> LogoutResult:
     payload = expect_object(value, path)
     return LogoutResult(
@@ -3218,6 +3259,31 @@ class WireClient:
         params: dict[str, object] = {}
         params["enabled"] = enabled
         return required(expect_object(self._command("set_ask_dialog", params), "set_ask_dialog"), "enabled", decode_bool, "set_ask_dialog")
+
+    def set_approval_mode(self, mode: ApprovalMode) -> ApprovalMode:
+        """Set `tools.approvalMode` for this process without writing config, like relaunching with `--approval-mode`; returns the applied mode."""
+        params: dict[str, object] = {}
+        params["mode"] = mode
+        return required(expect_object(self._command("set_approval_mode", params), "set_approval_mode"), "mode", _decode_approval_mode, "set_approval_mode")
+
+    def set_advisor(self, enabled: bool) -> SetAdvisorResult:
+        """Turn the advisor on or off for this session, like `/advisor on|off`."""
+        params: dict[str, object] = {}
+        params["enabled"] = enabled
+        return parse_set_advisor_result(self._command("set_advisor", params), "set_advisor")
+
+    def set_prewalk(self, armed: bool) -> SetPrewalkResult:
+        """Arm the one-shot handoff to the `smol` role model at the next edit/write, or cancel it, like `/prewalk` and `/prewalk off`."""
+        params: dict[str, object] = {}
+        params["armed"] = armed
+        return parse_set_prewalk_result(self._command("set_prewalk", params), "set_prewalk")
+
+    def set_tool_enabled(self, tool: str, *, enabled: bool) -> bool:
+        """Enable or disable one registered tool for this session; returns whether it is now enabled."""
+        params: dict[str, object] = {}
+        params["tool"] = tool
+        params["enabled"] = enabled
+        return required(expect_object(self._command("set_tool_enabled", params), "set_tool_enabled"), "enabled", decode_bool, "set_tool_enabled")
 
     def get_available_commands(self) -> tuple[AvailableSlashCommand, ...]:
         """List the slash-command catalog."""
@@ -3730,6 +3796,7 @@ __all__ = [
     "AgentSource",
     "AgentStartEvent",
     "AnthropicServerToolContent",
+    "ApprovalMode",
     "AskAnswer",
     "AskOption",
     "AskQuestion",
@@ -3862,7 +3929,9 @@ __all__ = [
     "SessionState",
     "SessionStats",
     "SessionTree",
+    "SetAdvisorResult",
     "SetEditorTextUiRequest",
+    "SetPrewalkResult",
     "SetStatusUiRequest",
     "SetTitleUiRequest",
     "SetWidgetUiRequest",
@@ -4032,7 +4101,9 @@ __all__ = [
     "parse_session_state",
     "parse_session_stats",
     "parse_session_tree",
+    "parse_set_advisor_result",
     "parse_set_editor_text_ui_request",
+    "parse_set_prewalk_result",
     "parse_set_status_ui_request",
     "parse_set_title_ui_request",
     "parse_set_widget_ui_request",

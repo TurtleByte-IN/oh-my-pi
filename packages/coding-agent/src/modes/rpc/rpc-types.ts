@@ -12,6 +12,7 @@ import type { ContextUsage } from "../../extensibility/extensions/types";
 import type { AgentSessionEvent, SessionStats } from "../../session/agent-session";
 import type { RestoredQueuedMessage } from "../../session/agent-session-types";
 import type { CacheWarmingMode } from "../../session/cache-warmer";
+import type { ApprovalMode } from "../../tools/approval";
 import type { FileEntry, SessionEntry, SessionTreeNode } from "../../session/session-entries";
 import type { UsageLimitState } from "../../session/usage-limit";
 import type { AvailableSlashCommandSource } from "../../slash-commands/available-commands";
@@ -31,6 +32,13 @@ import type { BtwHistoryRecord } from "../../session/btw-history";
 
 /** `set_event_filter` projection: `"full"` keeps both accumulated snapshots in `message_update`, `"delta"` sends only the increment. */
 export type RpcMessageUpdates = "full" | "delta";
+
+/** `set_prewalk` result: whether a handoff is pending, and its target model when it is. */
+export interface RpcPrewalkResult {
+	armed: boolean;
+	provider?: string;
+	modelId?: string;
+}
 
 export type RpcCommand =
 	// Protocol
@@ -60,6 +68,10 @@ export type RpcCommand =
 			token_budget?: number;
 	  }
 	| { id?: string; type: "set_ask_dialog"; enabled: boolean }
+	| { id?: string; type: "set_approval_mode"; mode: ApprovalMode }
+	| { id?: string; type: "set_advisor"; enabled: boolean }
+	| { id?: string; type: "set_prewalk"; armed: boolean }
+	| { id?: string; type: "set_tool_enabled"; tool: string; enabled: boolean }
 	| { id?: string; type: "get_available_commands" }
 	| { id?: string; type: "get_entries"; since?: string }
 	| { id?: string; type: "get_tree" }
@@ -416,6 +428,16 @@ export type RpcResponse =
 	| { id?: string; type: "response"; command: "set_slow_mode"; success: true; data: { enabled: boolean } }
 	| { id?: string; type: "response"; command: "goal"; success: true; data: RpcGoalResult }
 	| { id?: string; type: "response"; command: "set_ask_dialog"; success: true; data: { enabled: boolean } }
+	| { id?: string; type: "response"; command: "set_approval_mode"; success: true; data: { mode: ApprovalMode } }
+	| {
+			id?: string;
+			type: "response";
+			command: "set_advisor";
+			success: true;
+			data: { enabled: boolean; active: boolean };
+	  }
+	| { id?: string; type: "response"; command: "set_prewalk"; success: true; data: RpcPrewalkResult }
+	| { id?: string; type: "response"; command: "set_tool_enabled"; success: true; data: { enabled: boolean } }
 	| {
 			id?: string;
 			type: "response";

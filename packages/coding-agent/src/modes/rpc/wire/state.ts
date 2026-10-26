@@ -15,6 +15,10 @@ export const stateDefs = {
 	StreamingBehavior: "'steer' | 'followUp'",
 	QueuedMessageQueue: "'steering' | 'followUp'",
 	CacheWarmingMode: "'off' | 'streaming' | 'idle'",
+	ApprovalMode: doc(
+		"'always-ask' | 'always-ask-cached' | 'write' | 'yolo'",
+		"`tools.approvalMode`: the highest tool tier that runs without asking (the `--approval-mode` choices).",
+	),
 	MessageUpdates: doc(
 		"'full' | 'delta'",
 		"`set_event_filter` projection: `delta` drops the accumulated snapshots from `message_update`.",

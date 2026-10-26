@@ -72,6 +72,31 @@ function resolveSessionModelSelector(
 	});
 }
 
+/** A model selector resolved to a model whose provider has configured auth. */
+type AuthedModelTarget = {
+	model: NonNullable<ResolveCliModelResult["model"]>;
+	thinkingLevel: ResolveCliModelResult["thinkingLevel"];
+};
+
+/** Resolve a `/prewalk` selector (`@smol` target, `@default` restart source) to a model with configured auth. */
+function resolvePrewalkModel(
+	selector: string,
+	session: AgentSession,
+	settings: Settings,
+): AuthedModelTarget | { error: string } {
+	const resolved = resolveSessionModelSelector(selector, session, settings);
+	if (resolved.error || !resolved.model) return { error: resolved.error ?? `Model "${selector}" not found` };
+	if (!session.modelRegistry.hasConfiguredAuth(resolved.model)) {
+		return { error: `No API key for ${resolved.model.provider}/${resolved.model.id}` };
+	}
+	return { model: resolved.model, thinkingLevel: resolved.thinkingLevel };
+}
+
+/** The prewalk handoff target shared by `/prewalk` and RPC `set_prewalk`: the `smol` role model. */
+export function resolvePrewalkTarget(session: AgentSession, settings: Settings): AuthedModelTarget | { error: string } {
+	return resolvePrewalkModel("@smol", session, settings);
+}
+
 async function runWithDetachedModeDraft(
 	command: ParsedSlashCommand,
 	runtime: TuiSlashCommandRuntime,
@@ -789,21 +814,11 @@ export const BUILTIN_MODE_SLASH_COMMANDS: ReadonlyArray<SlashCommandSpec> = [
 				);
 				return commandConsumed();
 			}
-			const target = resolveSessionModelSelector("@smol", runtime.session, runtime.settings);
-			if (target.error || !target.model) {
-				return usage(target.error ?? 'Model "@smol" not found', runtime);
-			}
-			if (!runtime.session.modelRegistry.hasConfiguredAuth(target.model)) {
-				return usage(`No API key for ${target.model.provider}/${target.model.id}`, runtime);
-			}
+			const target = resolvePrewalkTarget(runtime.session, runtime.settings);
+			if ("error" in target) return usage(target.error, runtime);
 			if (arg === "restart") {
-				const source = resolveSessionModelSelector("@default", runtime.session, runtime.settings);
-				if (source.error || !source.model) {
-					return usage(source.error ?? 'Model "@default" not found', runtime);
-				}
-				if (!runtime.session.modelRegistry.hasConfiguredAuth(source.model)) {
-					return usage(`No API key for ${source.model.provider}/${source.model.id}`, runtime);
-				}
+				const source = resolvePrewalkModel("@default", runtime.session, runtime.settings);
+				if ("error" in source) return usage(source.error, runtime);
 				const result = await runtime.session.restartPrewalk(
 					source.model,
 					source.thinkingLevel,

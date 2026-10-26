@@ -152,6 +152,10 @@ Important edge behavior from runtime:
 - `{ id?, type: "set_slow_mode", enabled: boolean }`
 - `{ id?, type: "goal", op: "get" | "create" | "resume" | "pause" | "drop", objective?: string, token_budget?: number }`
 - `{ id?, type: "set_ask_dialog", enabled: boolean }`
+- `{ id?, type: "set_approval_mode", mode: "always-ask" | "always-ask-cached" | "write" | "yolo" }`
+- `{ id?, type: "set_advisor", enabled: boolean }`
+- `{ id?, type: "set_prewalk", armed: boolean }`
+- `{ id?, type: "set_tool_enabled", tool: string, enabled: boolean }`
 - `{ id?, type: "get_available_commands" }`
 - `{ id?, type: "get_entries", since?: string }`
 - `{ id?, type: "get_tree" }`
@@ -704,6 +708,65 @@ fallback when enabling fails.
   "data": { "enabled": true }
 }
 ```
+
+### Runtime controls: `set_approval_mode`, `set_advisor`, `set_prewalk`, `set_tool_enabled`
+
+These commands change a running session without a restart. They do the same
+work as `--approval-mode`, `/advisor on|off`, `/prewalk` and `/prewalk off`, and
+enabling or disabling one tool. None of them writes `config.yml`.
+
+`set_approval_mode` sets `tools.approvalMode` for the process, as
+`--approval-mode` does at launch. The next tool call uses the new mode. Only the
+four `--approval-mode` values are accepted; any other value fails with
+`"Invalid approval mode: <value>"` and leaves the mode unchanged. A `deny` or
+`prompt` in `tools.approval` still applies in every mode. A process started
+with `--auto-approve` or `--yolo` runs every tool
+call as `yolo`, so it accepts only `yolo` and rejects any other mode with
+`"Approval mode is locked to yolo: the session was started with --auto-approve/--yolo."`.
+Subagents keep their own `yolo` mode.
+
+```json
+{ "id": "req_mode", "type": "set_approval_mode", "mode": "write" }
+{ "id": "req_mode", "type": "response", "command": "set_approval_mode", "success": true, "data": { "mode": "write" } }
+```
+
+`set_advisor` turns the advisor on or off for this session. `data.enabled` is
+the session's advisor setting. `data.active` reports whether an advisor is
+running; it is `false` when no model is assigned to the `advisor` role.
+
+```json
+{ "id": "req_adv", "type": "set_advisor", "enabled": true }
+{ "id": "req_adv", "type": "response", "command": "set_advisor", "success": true, "data": { "enabled": true, "active": true } }
+```
+
+`set_prewalk` with `armed: true` arms the one-shot handoff to the `smol` role
+model at the next edit or write, like `/prewalk`. With `armed: false` it cancels
+a pending handoff and keeps the active model, like `/prewalk off`. `data.armed`
+reports whether a handoff is pending after the call; `provider` and `modelId`
+name its target when one is. Arming reports `armed: false` when the `smol` model
+is the active model already. Arming fails when the `smol` role has no model or
+its provider has no credentials.
+
+```json
+{ "id": "req_pw", "type": "set_prewalk", "armed": true }
+{ "id": "req_pw", "type": "response", "command": "set_prewalk", "success": true, "data": { "armed": true, "provider": "anthropic", "modelId": "claude-haiku-4-5" } }
+```
+
+`set_tool_enabled` adds a registered tool to the session's enabled tools or
+removes it; the next model request uses the new set. `data.enabled` reports
+whether the tool is enabled after the call. `write` stays enabled while `xd://`
+devices are mounted, because they are called through it. Unknown names fail with
+`"Unknown tool: <name>"`. The command fails while plan mode is active, because
+plan mode owns the tool set. A process started with `--tools` registers only the
+listed tools, so this command cannot enable any other tool.
+
+```json
+{ "id": "req_tool", "type": "set_tool_enabled", "tool": "bash", "enabled": false }
+{ "id": "req_tool", "type": "response", "command": "set_tool_enabled", "success": true, "data": { "enabled": false } }
+```
+
+The TypeScript client exposes `setApprovalMode`, `setAdvisor`, `setPrewalk`,
+and `setToolEnabled`.
 
 ### `set_todos` payload
 

@@ -2680,6 +2680,31 @@ impl CacheWarmingMode {
 	}
 }
 
+/// `tools.approvalMode`: the highest tool tier that runs without asking (the `--approval-mode` choices).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ApprovalMode {
+	#[serde(rename = "always-ask")]
+	AlwaysAsk,
+	#[serde(rename = "always-ask-cached")]
+	AlwaysAskCached,
+	#[serde(rename = "write")]
+	Write,
+	#[serde(rename = "yolo")]
+	Yolo,
+}
+
+impl ApprovalMode {
+	/// Wire value.
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::AlwaysAsk => "always-ask",
+			Self::AlwaysAskCached => "always-ask-cached",
+			Self::Write => "write",
+			Self::Yolo => "yolo",
+		}
+	}
+}
+
 /// `set_event_filter` projection: `delta` drops the accumulated snapshots from `message_update`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MessageUpdates {
@@ -5148,6 +5173,57 @@ pub struct SetAskDialogResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetApprovalModeParams {
+	pub mode: ApprovalMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetApprovalModeResult {
+	pub mode: ApprovalMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetAdvisorParams {
+	pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetAdvisorResult {
+	/// The session's advisor setting after the call.
+	pub enabled: bool,
+	/// Whether an advisor is running; false when no model is assigned to the `advisor` role.
+	pub active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetPrewalkParams {
+	pub armed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetPrewalkResult {
+	/// Whether a handoff is pending after the call.
+	pub armed: bool,
+	/// Provider of the pending handoff's target model.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub provider: Option<String>,
+	/// Id of the pending handoff's target model.
+	#[serde(rename = "modelId", default, skip_serializing_if = "Option::is_none")]
+	pub model_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetToolEnabledParams {
+	pub tool: String,
+	pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetToolEnabledResult {
+	pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetAvailableCommandsResult {
 	pub commands: Vec<AvailableSlashCommand>,
 }
@@ -6167,6 +6243,71 @@ impl Command for SetAskDialogCommand {
 
 	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
 		serde_json::from_value::<SetAskDialogResult>(data.unwrap_or_else(|| Value::Object(Map::new()))).map(|result| result.enabled)
+	}
+}
+
+/// Set `tools.approvalMode` for this process without writing config, like relaunching with `--approval-mode`; returns the applied mode.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetApprovalModeCommand {
+	pub mode: ApprovalMode,
+}
+
+impl Command for SetApprovalModeCommand {
+	const NAME: &'static str = "set_approval_mode";
+	const TIMEOUT_MS: Option<u64> = None;
+	type Output = ApprovalMode;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<SetApprovalModeResult>(data.unwrap_or_else(|| Value::Object(Map::new()))).map(|result| result.mode)
+	}
+}
+
+/// Turn the advisor on or off for this session, like `/advisor on|off`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetAdvisorCommand {
+	pub enabled: bool,
+}
+
+impl Command for SetAdvisorCommand {
+	const NAME: &'static str = "set_advisor";
+	const TIMEOUT_MS: Option<u64> = None;
+	type Output = SetAdvisorResult;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<SetAdvisorResult>(data.unwrap_or_else(|| Value::Object(Map::new())))
+	}
+}
+
+/// Arm the one-shot handoff to the `smol` role model at the next edit/write, or cancel it, like `/prewalk` and `/prewalk off`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetPrewalkCommand {
+	pub armed: bool,
+}
+
+impl Command for SetPrewalkCommand {
+	const NAME: &'static str = "set_prewalk";
+	const TIMEOUT_MS: Option<u64> = None;
+	type Output = SetPrewalkResult;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<SetPrewalkResult>(data.unwrap_or_else(|| Value::Object(Map::new())))
+	}
+}
+
+/// Enable or disable one registered tool for this session; returns whether it is now enabled.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetToolEnabledCommand {
+	pub tool: String,
+	pub enabled: bool,
+}
+
+impl Command for SetToolEnabledCommand {
+	const NAME: &'static str = "set_tool_enabled";
+	const TIMEOUT_MS: Option<u64> = None;
+	type Output = bool;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<SetToolEnabledResult>(data.unwrap_or_else(|| Value::Object(Map::new()))).map(|result| result.enabled)
 	}
 }
 
