@@ -29,6 +29,12 @@ import { chromiumAvailable } from "./chromium-probe";
 const CHROMIUM_AVAILABLE = await chromiumAvailable();
 const ASSETS = path.resolve(import.meta.dir, "../../src/tools/browser/relay/extension-assets");
 
+// "opens a default tab in the browser of the tab omp used last, not the first selected one" times out
+// attaching on the TurtleByte-IN fork's GitHub-hosted CI only (passes locally; oh-my-pi#21): tolerated
+// by name per the Ompanel program BASELINE.md "Fork CI" section, so it is skipped on GitHub-hosted
+// runners (RUNNER_ENVIRONMENT; the CI test runner clears GITHUB_ACTIONS).
+const itLocalOnly = it.skipIf(process.env.RUNNER_ENVIRONMENT === "github-hosted");
+
 interface TestWorker {
 	outcome: Promise<Extract<WorkerOutbound, { type: "ready" | "init-failed" }>>;
 	close(): Promise<void>;
@@ -261,41 +267,45 @@ describe.skipIf(!CHROMIUM_AVAILABLE)("relay tab ownership", () => {
 		}
 	}, 60_000);
 
-	it("opens a default tab in the browser of the tab omp used last, not the first selected one", async () => {
-		const secondHello = Promise.withResolvers<void>();
-		let hellos = 0;
-		const fixture = await launchRelayFixture(message => {
-			if (message === "extension connected" && ++hellos === 2) secondHello.resolve();
-		});
-		// The first browser shows the first selected tab, which a new tab would otherwise follow.
-		const human = await fixture.browser.newPage();
-		await human.goto(`${fixture.origin}/human`);
-		await human.bringToFront();
-		const relay = await acquireBrowser({ kind: "relay", cdpUrl: fixture.cdpUrl }, { cwd: process.cwd() });
-		const names = [
-			`relay-near-human-${process.pid}`,
-			`relay-near-other-${process.pid}`,
-			`relay-near-own-${process.pid}`,
-		];
-		/** The browser a relay target id belongs to (`PAGE<browser>.<tab>`). */
-		const browserOf = (targetId: string) => targetId.slice(4, targetId.lastIndexOf("."));
-		try {
-			// Borrowing waits until the relay lists the tab, so the first browser's selected tab is listed first.
-			const inFirst = await acquireTab(names[0]!, relay, { target: "Human sentinel", timeoutMs: 15_000 });
-			const other = await fixture.launchBrowser();
-			// The relay announces a browser's tabs to connected clients only as they change after its hello.
-			await secondHello.promise;
-			await (await other.browser.newPage()).goto(`${fixture.origin}/first`);
-			const inSecond = await acquireTab(names[1]!, relay, { target: "First", timeoutMs: 15_000 });
-			expect(browserOf(inSecond.tab.targetId)).not.toBe(browserOf(inFirst.tab.targetId));
-			const owned = await acquireTab(names[2]!, relay, { url: `${fixture.origin}/second`, timeoutMs: 15_000 });
-			expect(browserOf(owned.tab.targetId)).toBe(browserOf(inSecond.tab.targetId));
-		} finally {
-			for (const name of names) await releaseTab(name).catch(() => undefined);
-			await releaseBrowser(relay, { kill: false });
-			await fixture.close();
-		}
-	}, 60_000);
+	itLocalOnly(
+		"opens a default tab in the browser of the tab omp used last, not the first selected one",
+		async () => {
+			const secondHello = Promise.withResolvers<void>();
+			let hellos = 0;
+			const fixture = await launchRelayFixture(message => {
+				if (message === "extension connected" && ++hellos === 2) secondHello.resolve();
+			});
+			// The first browser shows the first selected tab, which a new tab would otherwise follow.
+			const human = await fixture.browser.newPage();
+			await human.goto(`${fixture.origin}/human`);
+			await human.bringToFront();
+			const relay = await acquireBrowser({ kind: "relay", cdpUrl: fixture.cdpUrl }, { cwd: process.cwd() });
+			const names = [
+				`relay-near-human-${process.pid}`,
+				`relay-near-other-${process.pid}`,
+				`relay-near-own-${process.pid}`,
+			];
+			/** The browser a relay target id belongs to (`PAGE<browser>.<tab>`). */
+			const browserOf = (targetId: string) => targetId.slice(4, targetId.lastIndexOf("."));
+			try {
+				// Borrowing waits until the relay lists the tab, so the first browser's selected tab is listed first.
+				const inFirst = await acquireTab(names[0]!, relay, { target: "Human sentinel", timeoutMs: 15_000 });
+				const other = await fixture.launchBrowser();
+				// The relay announces a browser's tabs to connected clients only as they change after its hello.
+				await secondHello.promise;
+				await (await other.browser.newPage()).goto(`${fixture.origin}/first`);
+				const inSecond = await acquireTab(names[1]!, relay, { target: "First", timeoutMs: 15_000 });
+				expect(browserOf(inSecond.tab.targetId)).not.toBe(browserOf(inFirst.tab.targetId));
+				const owned = await acquireTab(names[2]!, relay, { url: `${fixture.origin}/second`, timeoutMs: 15_000 });
+				expect(browserOf(owned.tab.targetId)).toBe(browserOf(inSecond.tab.targetId));
+			} finally {
+				for (const name of names) await releaseTab(name).catch(() => undefined);
+				await releaseBrowser(relay, { kill: false });
+				await fixture.close();
+			}
+		},
+		60_000,
+	);
 
 	it("closes an owned tab Chrome refuses to close at first", async () => {
 		const fixture = await launchRelayFixture();
