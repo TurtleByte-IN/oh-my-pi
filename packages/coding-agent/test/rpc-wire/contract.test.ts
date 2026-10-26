@@ -14,9 +14,9 @@ import {
 const SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
 const CONTRACT_PACKAGE_JSON = path.resolve(import.meta.dir, "../../../rpc-contract/package.json");
 
-// The branch whose recorded history must stay an unchanged prefix. CI sets the
-// variable after fetching the PR base (a shallow `+refs/heads/<base>:refs/remotes/origin/<base>`
-// fetch is enough), which makes the check mandatory; locally it runs when `origin/main` exists.
+// The commit whose recorded history must stay an unchanged prefix. CI sets the variable after a
+// shallow fetch of the PR base branch, or of the built commit's first parent on non-PR runs
+// (docs/rpc-contract.md), which makes the check mandatory; locally it runs when `origin/main` exists.
 const BASE_REF_REQUIRED = Bun.env.OMP_RPC_CONTRACT_BASE_REF;
 const BASE_REF = BASE_REF_REQUIRED || "origin/main";
 const REPO = vcs.git(import.meta.dir);
