@@ -1006,6 +1006,8 @@ export interface ReadyEvent {
 	supportedProtocolVersions?: number[];
 	maxFrameBytes?: number;
 	maxReassembledFrameBytes?: number;
+	/** Semver of the RPC contract (the wire shape); absent on servers before contract versions. */
+	contractVersion?: string;
 }
 
 export type PromptStatus = "completed" | "aborted" | "error";
@@ -1460,6 +1462,8 @@ export interface NegotiateProtocolParams {
 
 export interface NegotiateProtocolResult {
 	protocolVersion: number;
+	/** Semver of the RPC contract (the wire shape); absent on servers before contract versions. */
+	contractVersion?: string;
 }
 
 export interface PromptParams {

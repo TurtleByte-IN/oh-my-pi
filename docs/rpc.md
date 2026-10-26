@@ -29,7 +29,7 @@ Behavior notes:
 - CLI RPC modes disable automatic session title generation (`PI_NO_TITLE=1`) to avoid an extra model call. `rpc-ui` also sets `PI_NO_PTY=1`.
 - RPC/ACP pin neutral defaults for settings declaring the corresponding `protocolDefault`, including task isolation/execution, memory, advisor, and advisor tier settings. RPC additionally pins async-job and bash/eval auto-background defaults. Explicit project/global config, `--config`, and isolated settings remain authoritative; on-disk config changes are watched in long-lived CLI RPC processes. Todo settings are not host-defaulted.
 - The process claims stdin before extension discovery, then parses it one non-empty JSONL line at a time. Malformed JSON emits a recoverable `command: "parse"` failure and does not terminate the loop.
-- At startup it writes a `ready` frame before processing commands. The frame advertises supported protocol versions and transport limits.
+- At startup it writes a `ready` frame before processing commands. The frame advertises supported protocol versions, transport limits, and the RPC contract version.
 - When stdin closes, pending extension UI, host-tool, and host-URI requests are rejected; accepted commands are drained, the session is disposed, pending stdout is delivered, and normal shutdown exits with code `0`. A session-persistence failure still latched at disposal exits with code `1` after delivering its `notice` frame.
 - Responses/events are written as one JSON object per line.
 
@@ -37,7 +37,7 @@ Behavior notes:
 
 Protocol v1 stdout frames are a single JSON object followed by `\n`. The server caps each physical stdout frame at 1 MiB, including the newline. Inbound frames are always one unchunked JSONL object; clients SHOULD keep them within the advertised physical-frame limit. Input is not reassembled from `rpc_chunk` frames.
 
-The initial ready frame uses protocol v1 and advertises the opt-in lossless transport:
+The initial ready frame uses protocol v1, advertises the opt-in lossless transport, and reports the RPC contract version:
 
 ```json
 {
@@ -45,15 +45,20 @@ The initial ready frame uses protocol v1 and advertises the opt-in lossless tran
   "protocolVersion": 1,
   "supportedProtocolVersions": [1, 2],
   "maxFrameBytes": 1048576,
-  "maxReassembledFrameBytes": 67108864
+  "maxReassembledFrameBytes": 67108864,
+  "contractVersion": "1.0.0"
 }
 ```
+
+`protocolVersion` selects the framing; `contractVersion` is the semver of the wire shape (every command, response, and frame), and the `negotiate_protocol` success response repeats it as `data.contractVersion`. Servers built before contract versions omit the field. See [RPC contract](rpc-contract.md) for the versioning rules and the `packages/rpc-contract` package hosts pin.
 
 Clients that support protocol v2 SHOULD immediately send:
 
 ```json
 { "id": "protocol-1", "type": "negotiate_protocol", "protocolVersion": 2 }
 ```
+
+The success response is `{ "id": "protocol-1", "type": "response", "command": "negotiate_protocol", "success": true, "data": { "protocolVersion": 2, "contractVersion": "1.0.0" } }`.
 
 After the success response, oversized stdout objects use an uninterrupted sequence of `rpc_chunk` frames rather than content truncation. Each chunk carries a base64 segment of the UTF-8 JSON object:
 
@@ -1597,6 +1602,9 @@ type as omptype schemas. `bun run gen:rpc` emits:
     frame, and `x-scalar-or-array` marks an array older servers sent as a bare
     scalar.
 - `rpc-wire.generated.ts`: the wire types in TypeScript.
+- `packages/rpc-contract`: the same schema bundle and TypeScript types plus the
+  contract version and shape hash, packaged for hosts to pin; see
+  [RPC contract](rpc-contract.md).
 - `sdk/python/omp-rpc/src/omp_rpc/_wire.py`: Python types, decoders, command methods,
   and frame listeners for the `omp-rpc` package.
 - `sdk/rust/omp-rpc/src/wire.rs`: Rust serde types, frame decoders, and a `Command`
@@ -1612,7 +1620,8 @@ host-owned tools and URI schemes. Their READMEs cover the APIs.
 `packages/coding-agent/test/rpc-wire` fails when a committed output is stale, and
 type-checks the generated TypeScript against `rpc-types.ts` and the internal types
 behind it: a new command, command parameter, event, event field, or enum value on
-the server breaks `bun check` until the schema covers it.
+the server breaks `bun check` until the schema covers it. It also fails when the
+wire shape changes without a new contract version (`contract.test.ts`).
 
 ### TypeScript helper
 

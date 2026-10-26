@@ -322,6 +322,8 @@ export interface RpcReadyFrame {
 	supportedProtocolVersions: [1, 2];
 	maxFrameBytes: number;
 	maxReassembledFrameBytes: number;
+	/** RPC contract semver (`wire/contract.ts`). */
+	contractVersion: string;
 }
 
 export interface RpcChunkFrame {
@@ -375,7 +377,7 @@ export type RpcResponse =
 			type: "response";
 			command: "negotiate_protocol";
 			success: true;
-			data: { protocolVersion: 2 };
+			data: { protocolVersion: 2; contractVersion: string };
 	  }
 
 	// Prompting (async - events follow)

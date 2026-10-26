@@ -165,7 +165,7 @@ Top-level entry modules: `cli.ts`, `main.ts`, `sdk.ts`, `index.ts` (SDK barrel),
 | An extension (TS/JS module) | [extensions.md](../../docs/extensions.md), [extension-loading.md](../../docs/extension-loading.md), [skills/authoring-extensions.md](../../docs/skills/authoring-extensions.md) |
 | A hook | `src/extensibility/hooks/types.ts` + [hooks.md](../../docs/hooks.md), [skills/authoring-hooks.md](../../docs/skills/authoring-hooks.md) |
 | A slash command | [slash-command-internals.md](../../docs/slash-command-internals.md) |
-| An RPC command | `src/modes/rpc/rpc-types.ts` + [rpc.md](../../docs/rpc.md) |
+| An RPC command | `src/modes/rpc/rpc-types.ts` + `src/modes/rpc/wire` + [rpc.md](../../docs/rpc.md); bump the contract version per [rpc-contract.md](../../docs/rpc-contract.md) |
 | A skill | [skills.md](../../docs/skills.md) |
 | A marketplace plugin | [marketplace.md](../../docs/marketplace.md), [plugin-manager-installer-plumbing.md](../../docs/plugin-manager-installer-plumbing.md), [skills/authoring-marketplaces.md](../../docs/skills/authoring-marketplaces.md), [gemini-manifest-extensions.md](../../docs/gemini-manifest-extensions.md) |
 | A custom MCP tool/server | [mcp-server-tool-authoring.md](../../docs/mcp-server-tool-authoring.md), [custom-tools.md](../../docs/custom-tools.md) |

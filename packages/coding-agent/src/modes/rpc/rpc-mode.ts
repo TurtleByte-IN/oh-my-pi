@@ -88,6 +88,7 @@ import {
 import { RpcSessionEventForwarder } from "./rpc-session-events";
 import { isRpcSessionSettled, RpcSessionSettleWatcher, watchedScheduledTurnProbe } from "./rpc-session-settle";
 import { RpcSubagentRegistry, readRpcSubagentTranscript, resolveOwnedLiveSubagent } from "./rpc-subagents";
+import { RPC_CONTRACT_VERSION } from "./wire/contract";
 import type {
 	RpcAbortAndRestoreQueueResult,
 	RpcCommand,
@@ -1370,6 +1371,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			supportedProtocolVersions: [1, 2],
 			maxFrameBytes: MAX_RPC_FRAME_BYTES,
 			maxReassembledFrameBytes: MAX_RPC_REASSEMBLED_BYTES,
+			contractVersion: RPC_CONTRACT_VERSION,
 		}),
 	);
 	const output = (obj: RpcResponse | RpcExtensionUIRequest | object) => {
@@ -1895,7 +1897,7 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			case "negotiate_protocol": {
 				if (command.protocolVersion !== 2)
 					return error(id, "negotiate_protocol", `Unsupported RPC protocol version: ${command.protocolVersion}`);
-				return success(id, "negotiate_protocol", { protocolVersion: 2 });
+				return success(id, "negotiate_protocol", { protocolVersion: 2, contractVersion: RPC_CONTRACT_VERSION });
 			}
 
 			// =================================================================

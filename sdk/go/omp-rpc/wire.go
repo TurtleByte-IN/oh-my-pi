@@ -4551,6 +4551,8 @@ type ReadyEvent struct {
 	SupportedProtocolVersions []int64 `json:"supportedProtocolVersions,omitempty"`
 	MaxFrameBytes             *int64  `json:"maxFrameBytes,omitempty"`
 	MaxReassembledFrameBytes  *int64  `json:"maxReassembledFrameBytes,omitempty"`
+	// Semver of the RPC contract (the wire shape); absent on servers before contract versions.
+	ContractVersion *string `json:"contractVersion,omitempty"`
 }
 
 func (v *ReadyEvent) UnmarshalJSON(data []byte) error {
@@ -4565,6 +4567,7 @@ func (v *ReadyEvent) decodeFrom(raw map[string]json.RawMessage) error {
 	d.optional("supportedProtocolVersions", &out.SupportedProtocolVersions)
 	d.optional("maxFrameBytes", &out.MaxFrameBytes)
 	d.optional("maxReassembledFrameBytes", &out.MaxReassembledFrameBytes)
+	d.optional("contractVersion", &out.ContractVersion)
 	if d.err != nil {
 		return d.err
 	}
@@ -6814,6 +6817,8 @@ func (v *RpcServerFrame) UnmarshalJSON(data []byte) error {
 
 type NegotiateProtocolResult struct {
 	ProtocolVersion int64 `json:"protocolVersion"`
+	// Semver of the RPC contract (the wire shape); absent on servers before contract versions.
+	ContractVersion *string `json:"contractVersion,omitempty"`
 }
 
 func (v *NegotiateProtocolResult) UnmarshalJSON(data []byte) error {
@@ -6824,6 +6829,7 @@ func (v *NegotiateProtocolResult) decodeFrom(raw map[string]json.RawMessage) err
 	var out NegotiateProtocolResult
 	d := fieldDecoder{raw: raw, owner: "NegotiateProtocolResult"}
 	d.required("protocolVersion", &out.ProtocolVersion)
+	d.optional("contractVersion", &out.ContractVersion)
 	if d.err != nil {
 		return d.err
 	}
