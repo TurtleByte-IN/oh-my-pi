@@ -64,6 +64,8 @@ export const COMPOSER_DEFAULTS: ComposerPreferences = {
 /** Welcome data that can be supplied initially or patched as startup resolves it. */
 export interface ComposerWelcomeUpdate {
 	readonly version?: string;
+	/** Product name replacing the `omp` wordmark (`omp --brand <name>`). */
+	readonly brand?: string;
 }
 
 /**
@@ -220,6 +222,7 @@ export class Composer implements TerminalFrameProvider, NativeSurfaceProvider {
 	#preferences: ComposerPreferences;
 	#welcome: WelcomeComponent | undefined;
 	#version = "";
+	#brand: string | undefined;
 	#headerBefore: readonly Component[] = [];
 	#headerAfter: readonly Component[] = [];
 	#runtimeChildren: readonly Component[] = [];
@@ -997,6 +1000,7 @@ export class Composer implements TerminalFrameProvider, NativeSurfaceProvider {
 		const welcome = this.#welcome;
 		if (!welcome) return;
 		if (update.version !== undefined) welcome.setVersion(this.#version);
+		if (update.brand !== undefined) welcome.setBrand(this.#brand);
 		this.ui.requestRender();
 	}
 
@@ -1092,10 +1096,11 @@ export class Composer implements TerminalFrameProvider, NativeSurfaceProvider {
 
 	#applyWelcomeUpdate(update: ComposerWelcomeUpdate): void {
 		if (update.version !== undefined) this.#version = update.version;
+		if (update.brand !== undefined) this.#brand = update.brand;
 	}
 
 	#ensureWelcome(): void {
-		this.#welcome ??= new WelcomeComponent(this.#version);
+		this.#welcome ??= new WelcomeComponent(this.#version, this.#brand);
 	}
 
 	#rebuildHeader(): void {

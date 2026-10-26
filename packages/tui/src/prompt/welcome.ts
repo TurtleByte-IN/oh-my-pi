@@ -213,7 +213,15 @@ export class WelcomeComponent implements Component {
 	#cachedLines: string[] | undefined;
 	#native: { tip: string | undefined; node: NativeNode } | undefined;
 
-	constructor(private version: string) {}
+	/**
+	 * @param version Version shown under the wordmark.
+	 * @param brand Product name replacing the built-in `omp` wordmark (`omp --brand <name>`);
+	 *   `undefined` keeps the half-block `omp` wordmark.
+	 */
+	constructor(
+		private version: string,
+		private brand?: string,
+	) {}
 	get tip(): string | undefined {
 		this.#nagRoll ??= Math.random();
 		this.#tipRoll ??= Math.random();
@@ -259,7 +267,7 @@ export class WelcomeComponent implements Component {
 					keyed(
 						col(
 							[
-								art([span(APP_NAME, "strong")], "omp.welcome.wordmark"),
+								art([span(this.brand ?? APP_NAME, "strong")], "omp.welcome.wordmark"),
 								art([span(`v${this.version}`, "dim mono")], "omp.welcome.version"),
 							],
 							{ role: "omp.welcome.mark" },
@@ -354,6 +362,12 @@ export class WelcomeComponent implements Component {
 		this.invalidate();
 	}
 
+	/** Replace the wordmark with `brand`; `undefined` restores the built-in `omp` wordmark. */
+	setBrand(brand: string | undefined): void {
+		this.brand = brand;
+		this.invalidate();
+	}
+
 	render(termWidth: number): readonly string[] {
 		const animating = this.#animStart != null;
 		if (!animating && this.#cachedLines && this.#cachedWidth === termWidth) {
@@ -376,8 +390,10 @@ export class WelcomeComponent implements Component {
 		if (room < 4) return [];
 		const logo = this.#currentLogoFrame();
 		const version = theme.fg("dim", `v${this.version}`);
-		const lockupWidth = LOGO_WIDTH + LOCKUP_GAP + Math.max(WORDMARK_WIDTH, visibleWidth(version));
-		const art = room >= lockupWidth ? lockup(logo, version) : room >= LOGO_WIDTH ? logo : [];
+		const wordmark = this.brand === undefined ? WORDMARK : [this.brand];
+		const wordmarkWidth = Math.max(...wordmark.map(row => visibleWidth(row)));
+		const lockupWidth = LOGO_WIDTH + LOCKUP_GAP + Math.max(wordmarkWidth, visibleWidth(version));
+		const art = room >= lockupWidth ? lockup(logo, wordmark, version) : room >= LOGO_WIDTH ? logo : [];
 		const lines = centerBlock(art, termWidth);
 		const tip = termWidth >= TIP_MIN_COLUMNS ? this.#renderTip(room) : [];
 		if (tip.length > 0) lines.push("", ...tip.flatMap(line => centerBlock([line], termWidth)));
@@ -420,9 +436,6 @@ const LOGO_WIDTH = Math.max(...PI_LOGO.map(row => row.length));
  */
 const WORDMARK = ["▄▀▀▄ █▀▄▀▄ █▀▀▄", "▀▄▄▀ █ █ █ █▄▄▀", "           █"];
 
-/** Columns of {@link WORDMARK}. */
-const WORDMARK_WIDTH = Math.max(...WORDMARK.map(row => row.length));
-
 /** Columns between the logo and the wordmark. */
 const LOCKUP_GAP = 4;
 
@@ -432,9 +445,9 @@ const TIP_MEASURE = 72;
 /** Narrowest terminal that still shows the tip; below it the banner is the logo alone. */
 const TIP_MIN_COLUMNS = 50;
 
-/** Logo frame `logo` with the wordmark beside it and `version` (styled) under the wordmark. */
-function lockup(logo: readonly string[], version: string): string[] {
-	const beside = ["", ...WORDMARK.map(row => theme.bold(theme.fg("text", row))), version];
+/** Logo frame `logo` with `wordmark` beside it and `version` (styled) under the wordmark. */
+function lockup(logo: readonly string[], wordmark: readonly string[], version: string): string[] {
+	const beside = ["", ...wordmark.map(row => theme.bold(theme.fg("text", row))), version];
 	return logo.map((row, index) => `${row}${padding(LOCKUP_GAP)}${beside[index] ?? ""}`);
 }
 

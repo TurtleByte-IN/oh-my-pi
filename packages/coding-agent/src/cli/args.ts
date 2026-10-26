@@ -89,6 +89,8 @@ export interface Args {
 	skills?: string[];
 	noRules?: boolean;
 	noTitle?: boolean;
+	/** Product name shown in the interactive welcome banner instead of `omp`. */
+	brand?: string;
 	/** RPC modes only: run extensions without a UI; `rpc-ui` tool UI remains enabled. */
 	noUi?: boolean;
 	autoApprove?: boolean;

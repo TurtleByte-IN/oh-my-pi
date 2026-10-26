@@ -119,4 +119,24 @@ describe("WelcomeComponent", () => {
 		expect(narrow).not.toContain("▄▀▀▄");
 		expect(narrow).not.toContain("v1.0.0");
 	});
+
+	it("replaces the omp wordmark with the brand name, version under it", () => {
+		const rows = new WelcomeComponent("1.0.0", "Ompanel").render(80).map(row => Bun.stripANSI(row));
+		const word = rows.find(row => row.includes("Ompanel"));
+		const version = rows.find(row => row.includes("v1.0.0"));
+		expect(word).toBeDefined();
+		expect(version?.indexOf("v1.0.0")).toBe(word?.indexOf("Ompanel"));
+		expect(rows.join("\n")).not.toContain("▄▀▀▄");
+	});
+
+	it("natively names the brand in the wordmark and restores omp when cleared", () => {
+		const welcome = new WelcomeComponent("1.0.0", "Ompanel");
+		type Tree = { c: { c: { c: unknown[] }[] }[] };
+		const wordmark = () => (welcome.describe({} as never) as unknown as Tree).c[0].c[1].c[0];
+		expect(wordmark()).toMatchObject({ p: { role: "omp.welcome.wordmark", spans: [{ t: "Ompanel" }] } });
+
+		welcome.setBrand(undefined);
+		expect(wordmark()).toMatchObject({ p: { spans: [{ t: "omp" }] } });
+		expect(Bun.stripANSI(welcome.render(80).join("\n"))).toContain("▄▀▀▄");
+	});
 });
