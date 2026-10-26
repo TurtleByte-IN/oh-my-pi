@@ -186,6 +186,10 @@ export const frameDefs = {
 		title: "string",
 		"placeholder?": "string",
 		"timeout?": "number.integer",
+		"secret?": doc(
+			"boolean",
+			"Mask the answer and keep it out of history and logs; sent only for a `login` that passed `secretInput: true`.",
+		),
 	},
 	EditorUiRequest: {
 		type: UI,

@@ -7,7 +7,7 @@ const loginNovita = getProviderDefinition("novita")!.login!;
 describe("Novita login", () => {
 	test("validates the pasted key against the OpenAI-compatible chat completions endpoint", async () => {
 		const authEvents: Array<{ url: string; instructions?: string }> = [];
-		const prompts: Array<{ message: string; placeholder?: string }> = [];
+		const prompts: Array<{ message: string; placeholder?: string; secret?: boolean }> = [];
 		const progress: string[] = [];
 		const requests: Array<{
 			url: string;
@@ -45,7 +45,7 @@ describe("Novita login", () => {
 				instructions: "Create or copy your API key from the Novita dashboard",
 			},
 		]);
-		expect(prompts).toEqual([{ message: "Paste your Novita API key", placeholder: "sk_..." }]);
+		expect(prompts).toEqual([{ message: "Paste your Novita API key", placeholder: "sk_...", secret: true }]);
 		expect(progress).toEqual(["Validating API key..."]);
 		expect(requests).toEqual([
 			{

@@ -3328,11 +3328,41 @@ func (v *BtwHistoryRecord) decodeFrom(raw map[string]json.RawMessage) error {
 	return nil
 }
 
+// Where a provider's auth comes from: `--api-key`, models config, a stored OAuth grant, a stored API key, or an env var.
+type LoginAuthSource string
+
+const (
+	LoginAuthSourceRuntime LoginAuthSource = "runtime"
+	LoginAuthSourceConfig  LoginAuthSource = "config"
+	LoginAuthSourceOauth   LoginAuthSource = "oauth"
+	LoginAuthSourceAPIKey  LoginAuthSource = "api_key"
+	LoginAuthSourceEnv     LoginAuthSource = "env"
+)
+
+func (v *LoginAuthSource) UnmarshalJSON(data []byte) error {
+	s, err := decodeString(data, "LoginAuthSource")
+	if err != nil {
+		return err
+	}
+	switch value := LoginAuthSource(s); value {
+	case LoginAuthSourceRuntime, LoginAuthSourceConfig, LoginAuthSourceOauth, LoginAuthSourceAPIKey, LoginAuthSourceEnv:
+		*v = value
+		return nil
+	}
+	return unknownValue("LoginAuthSource", s)
+}
+
 type LoginProvider struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
 	Available     bool   `json:"available"`
 	Authenticated bool   `json:"authenticated"`
+	// `login` asks for one pasted API key, which hosts may pass as `input`; false for browser, device-code and multi-step flows.
+	APIKey bool `json:"apiKey"`
+	// Auth that currently applies; absent when `authenticated` is false.
+	Source *LoginAuthSource `json:"source,omitempty"`
+	// Env var backing the auth when `source` is `"env"` and one variable names it.
+	EnvVar *string `json:"envVar,omitempty"`
 }
 
 func (v *LoginProvider) UnmarshalJSON(data []byte) error {
@@ -3346,6 +3376,9 @@ func (v *LoginProvider) decodeFrom(raw map[string]json.RawMessage) error {
 	d.required("name", &out.Name)
 	d.required("available", &out.Available)
 	d.required("authenticated", &out.Authenticated)
+	d.defaulted("apiKey", &out.APIKey, `false`)
+	d.optional("source", &out.Source)
+	d.optional("envVar", &out.EnvVar)
 	if d.err != nil {
 		return d.err
 	}
@@ -5545,6 +5578,8 @@ type InputUiRequest struct {
 	Title       string  `json:"title"`
 	Placeholder *string `json:"placeholder,omitempty"`
 	Timeout     *int64  `json:"timeout,omitempty"`
+	// Mask the answer and keep it out of history and logs; sent only for a `login` that passed `secretInput: true`.
+	Secret *bool `json:"secret,omitempty"`
 }
 
 func (v *InputUiRequest) UnmarshalJSON(data []byte) error {
@@ -5560,6 +5595,7 @@ func (v *InputUiRequest) decodeFrom(raw map[string]json.RawMessage) error {
 	d.required("title", &out.Title)
 	d.optional("placeholder", &out.Placeholder)
 	d.optional("timeout", &out.Timeout)
+	d.optional("secret", &out.Secret)
 	if d.err != nil {
 		return d.err
 	}
@@ -8417,7 +8453,7 @@ func (c Commands) GetMessagesPage(ctx context.Context, p GetMessagesPageCommand)
 	return out, err
 }
 
-// GetLoginProviders sends "get_login_providers": List OAuth providers and their authentication status.
+// GetLoginProviders sends "get_login_providers": List login providers (OAuth and API-key) and their authentication status.
 func (c Commands) GetLoginProviders(ctx context.Context) ([]LoginProvider, error) {
 	var out GetLoginProvidersResult
 	err := c.call(ctx, "get_login_providers", nil, 0, &out)
@@ -8427,9 +8463,13 @@ func (c Commands) GetLoginProviders(ctx context.Context) ([]LoginProvider, error
 // LoginCommand holds the parameters of "login".
 type LoginCommand struct {
 	ProviderID string `json:"providerId"`
+	// Answer to the flow's first prompt, sent instead of an `input` request; for `apiKey` providers, the key.
+	Input *string `json:"input,omitempty"`
+	// The host masks `input` requests marked `secret`; without it, a flow that asks for a secret fails.
+	SecretInput *bool `json:"secretInput,omitempty"`
 }
 
-// Login sends "login": Run OAuth login; the flow arrives as `open_url` and `input` UI requests.
+// Login sends "login": Sign in to a provider; the flow arrives as `open_url`, `notify` and `input` UI requests.
 func (c Commands) Login(ctx context.Context, p LoginCommand) (string, error) {
 	var out LoginResult
 	err := c.call(ctx, "login", p, 600*time.Second, &out)

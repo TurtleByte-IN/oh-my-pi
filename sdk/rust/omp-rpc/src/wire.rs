@@ -3483,12 +3483,49 @@ pub struct BtwHistoryRecord {
 	pub follow_ups: Option<Vec<BtwHistoryTurn>>,
 }
 
+/// Where a provider's auth comes from: `--api-key`, models config, a stored OAuth grant, a stored API key, or an env var.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LoginAuthSource {
+	#[serde(rename = "runtime")]
+	Runtime,
+	#[serde(rename = "config")]
+	Config,
+	#[serde(rename = "oauth")]
+	Oauth,
+	#[serde(rename = "api_key")]
+	ApiKey,
+	#[serde(rename = "env")]
+	Env,
+}
+
+impl LoginAuthSource {
+	/// Wire value.
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Runtime => "runtime",
+			Self::Config => "config",
+			Self::Oauth => "oauth",
+			Self::ApiKey => "api_key",
+			Self::Env => "env",
+		}
+	}
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LoginProvider {
 	pub id: String,
 	pub name: String,
 	pub available: bool,
 	pub authenticated: bool,
+	/// `login` asks for one pasted API key, which hosts may pass as `input`; false for browser, device-code and multi-step flows.
+	#[serde(rename = "apiKey", default = "default_login_provider_api_key")]
+	pub api_key: bool,
+	/// Auth that currently applies; absent when `authenticated` is false.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub source: Option<LoginAuthSource>,
+	/// Env var backing the auth when `source` is `"env"` and one variable names it.
+	#[serde(rename = "envVar", default, skip_serializing_if = "Option::is_none")]
+	pub env_var: Option<String>,
 }
 
 /// A stored credential `logout` can remove; `active` marks credentials the session may be using.
@@ -4477,6 +4514,9 @@ pub struct InputUiRequest {
 	pub placeholder: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub timeout: Option<i64>,
+	/// Mask the answer and keep it out of history and logs; sent only for a `login` that passed `secretInput: true`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub secret: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5641,6 +5681,12 @@ pub struct GetLoginProvidersResult {
 pub struct LoginParams {
 	#[serde(rename = "providerId")]
 	pub provider_id: String,
+	/// Answer to the flow's first prompt, sent instead of an `input` request; for `apiKey` providers, the key.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub input: Option<String>,
+	/// The host masks `input` requests marked `secret`; without it, a flow that asks for a secret fails.
+	#[serde(rename = "secretInput", default, skip_serializing_if = "Option::is_none")]
+	pub secret_input: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -6101,6 +6147,10 @@ fn default_subagent_snapshot_parent_id() -> Option<String> {
 
 fn default_subagent_snapshot_depth() -> i64 {
 	serde_json::from_str("0").expect("valid wire default")
+}
+
+fn default_login_provider_api_key() -> bool {
+	serde_json::from_str("false").expect("valid wire default")
 }
 
 fn default_auto_retry_end_event_retry_errors() -> Vec<Map<String, Value>> {
@@ -7218,7 +7268,7 @@ impl Command for GetMessagesPageCommand {
 	}
 }
 
-/// List OAuth providers and their authentication status.
+/// List login providers (OAuth and API-key) and their authentication status.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct GetLoginProvidersCommand {}
 
@@ -7232,11 +7282,17 @@ impl Command for GetLoginProvidersCommand {
 	}
 }
 
-/// Run OAuth login; the flow arrives as `open_url` and `input` UI requests.
+/// Sign in to a provider; the flow arrives as `open_url`, `notify` and `input` UI requests.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LoginCommand {
 	#[serde(rename = "providerId")]
 	pub provider_id: String,
+	/// Answer to the flow's first prompt, sent instead of an `input` request; for `apiKey` providers, the key.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub input: Option<String>,
+	/// The host masks `input` requests marked `secret`; without it, a flow that asks for a secret fails.
+	#[serde(rename = "secretInput", default, skip_serializing_if = "Option::is_none")]
+	pub secret_input: Option<bool>,
 }
 
 impl Command for LoginCommand {

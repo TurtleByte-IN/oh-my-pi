@@ -717,7 +717,7 @@
 			},
 			{
 				"name": "get_login_providers",
-				"doc": "List OAuth providers and their authentication status.",
+				"doc": "List login providers (OAuth and API-key) and their authentication status.",
 				"params": null,
 				"result": "GetLoginProvidersResult",
 				"nullable": false,
@@ -728,7 +728,7 @@
 			},
 			{
 				"name": "login",
-				"doc": "Run OAuth login; the flow arrives as `open_url` and `input` UI requests.",
+				"doc": "Sign in to a provider; the flow arrives as `open_url`, `notify` and `input` UI requests.",
 				"params": "LoginParams",
 				"result": "LoginResult",
 				"nullable": false,
@@ -3484,6 +3484,17 @@
 			],
 			"description": "A side-question topic: its first turn's fields plus follow-ups; the latest turn is the last follow-up, else the record."
 		},
+		"LoginAuthSource": {
+			"enum": [
+				"runtime",
+				"config",
+				"oauth",
+				"api_key",
+				"env"
+			],
+			"type": "string",
+			"description": "Where a provider's auth comes from: `--api-key`, models config, a stored OAuth grant, a stored API key, or an env var."
+		},
 		"LoginProvider": {
 			"type": "object",
 			"properties": {
@@ -3498,6 +3509,19 @@
 				},
 				"authenticated": {
 					"type": "boolean"
+				},
+				"apiKey": {
+					"type": "boolean",
+					"description": "`login` asks for one pasted API key, which hosts may pass as `input`; false for browser, device-code and multi-step flows.",
+					"default": false
+				},
+				"source": {
+					"$ref": "#/$defs/LoginAuthSource",
+					"description": "Auth that currently applies; absent when `authenticated` is false."
+				},
+				"envVar": {
+					"type": "string",
+					"description": "Env var backing the auth when `source` is `\"env\"` and one variable names it."
 				}
 			},
 			"required": [
@@ -5150,6 +5174,10 @@
 				},
 				"timeout": {
 					"type": "integer"
+				},
+				"secret": {
+					"type": "boolean",
+					"description": "Mask the answer and keep it out of history and logs; sent only for a `login` that passed `secretInput: true`."
 				}
 			},
 			"required": [
@@ -7048,6 +7076,14 @@
 			"properties": {
 				"providerId": {
 					"type": "string"
+				},
+				"input": {
+					"type": "string",
+					"description": "Answer to the flow's first prompt, sent instead of an `input` request; for `apiKey` providers, the key."
+				},
+				"secretInput": {
+					"type": "boolean",
+					"description": "The host masks `input` requests marked `secret`; without it, a flow that asks for a secret fails."
 				}
 			},
 			"required": [

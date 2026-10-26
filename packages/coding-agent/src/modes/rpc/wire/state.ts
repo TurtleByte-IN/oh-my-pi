@@ -312,7 +312,25 @@ export const stateDefs = {
 		},
 		"A side-question topic: its first turn's fields plus follow-ups; the latest turn is the last follow-up, else the record.",
 	),
-	LoginProvider: { id: "string", name: "string", available: "boolean", authenticated: "boolean" },
+	LoginAuthSource: doc(
+		"'runtime' | 'config' | 'oauth' | 'api_key' | 'env'",
+		"Where a provider's auth comes from: `--api-key`, models config, a stored OAuth grant, a stored API key, or an env var.",
+	),
+	LoginProvider: {
+		id: "string",
+		name: "string",
+		available: "boolean",
+		authenticated: "boolean",
+		apiKey: absentAs(
+			doc(
+				"boolean",
+				"`login` asks for one pasted API key, which hosts may pass as `input`; false for browser, device-code and multi-step flows.",
+			),
+			false,
+		),
+		"source?": doc("LoginAuthSource", "Auth that currently applies; absent when `authenticated` is false."),
+		"envVar?": doc("string", 'Env var backing the auth when `source` is `"env"` and one variable names it.'),
+	},
 	LogoutAccount: doc(
 		{
 			credentialId: "number.integer",

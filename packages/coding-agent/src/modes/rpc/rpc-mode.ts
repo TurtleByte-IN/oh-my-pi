@@ -15,7 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import type { Model } from "@oh-my-pi/pi-ai";
-import { getOAuthProviders } from "@oh-my-pi/pi-ai/oauth";
+import { getApiKeyProviders, getOAuthProviders, type OAuthPrompt } from "@oh-my-pi/pi-ai/oauth";
 import type { ImageContent } from "@oh-my-pi/pi-ai";
 import { toolWireSchema } from "@oh-my-pi/pi-ai/utils/schema";
 import { modelsAreEqual } from "@oh-my-pi/pi-catalog/models";
@@ -1559,6 +1559,18 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			);
 		}
 
+		/** `input` request the host must mask; only for hosts that declared masking (`login.secretInput`). */
+		secretInput(title: string, placeholder?: string, timeout?: number): Promise<string | undefined> {
+			return requestRpcDialog(
+				this.pendingRequests,
+				this.output,
+				{ timeout },
+				undefined,
+				{ method: "input", title, placeholder, timeout, secret: true },
+				response => parseValueDialogResponse(response, { timeout }),
+			);
+		}
+
 		onTerminalInput(): () => void {
 			// Raw terminal input not supported in RPC mode
 			return () => {};
@@ -2697,68 +2709,91 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			// =================================================================
 
 			case "get_login_providers": {
-				const providers = getOAuthProviders().map(provider => ({
-					id: provider.id,
-					name: provider.name,
-					available: provider.available,
-					authenticated:
-						session.modelRegistry.authStorage.keys.source(provider.storeCredentialsAs ?? provider.id) !==
-						undefined,
-				}));
+				const authStorage = session.modelRegistry.authStorage;
+				const providers = [...getOAuthProviders(), ...getApiKeyProviders()].map(provider => {
+					const source = authStorage.keys.source(provider.storeCredentialsAs ?? provider.id);
+					return {
+						id: provider.id,
+						name: provider.name,
+						available: provider.available,
+						authenticated: source !== undefined,
+						apiKey: provider.apiKeyLogin === true,
+						...(source ? { source: source.kind } : {}),
+						...(source?.envVar ? { envVar: source.envVar } : {}),
+					};
+				});
 				return success(id, "get_login_providers", { providers });
 			}
 
 			case "login": {
-				const knownProvider = getOAuthProviders().find(p => p.id === command.providerId);
-				if (!knownProvider) {
-					return error(id, "login", `Unknown OAuth provider: ${command.providerId}`);
+				if (command.input !== undefined && typeof command.input !== "string") {
+					return error(id, "login", "input must be a string");
+				}
+				const oauthProvider = getOAuthProviders().find(p => p.id === command.providerId);
+				const apiKeyProvider = oauthProvider
+					? undefined
+					: getApiKeyProviders().find(p => p.id === command.providerId);
+				if (!oauthProvider && !apiKeyProvider) {
+					return error(id, "login", `Unknown login provider: ${command.providerId}`);
 				}
 				const uiCtx = new RpcExtensionUIContext(pendingExtensionRequests, output);
-				// Track whether onAuth has fired. Providers that require interactive
-				// input before a browser URL cannot be satisfied headlessly; after
-				// onAuth, prompt input is the pasted OAuth code/redirect URL path.
-				let authEmitted = false;
+				// `input` answers the first prompt in the command itself, so a host can
+				// hand over an API key without a UI round trip. Later prompts become
+				// `input` requests; secret ones only for hosts that declared masking.
+				let suppliedInput: string | undefined = command.input;
+				const onPrompt = async (prompt: OAuthPrompt): Promise<string> => {
+					if (suppliedInput !== undefined) {
+						const answer = suppliedInput;
+						suppliedInput = undefined;
+						return answer;
+					}
+					if (prompt.secret) {
+						if (command.secretInput !== true) {
+							throw new Error(
+								`Provider '${command.providerId}' requires secret input; ` +
+									"pass it as `input`, or set `secretInput: true` if the host masks secret `input` requests.",
+							);
+						}
+						return (await uiCtx.secretInput(prompt.message, prompt.placeholder, 600_000)) ?? "";
+					}
+					return (await uiCtx.input(prompt.message, prompt.placeholder, { timeout: 600_000 })) ?? "";
+				};
 				try {
-					await session.modelRegistry.authStorage.oauth.login(command.providerId, {
-						onAuth: info => {
-							authEmitted = true;
-							output({
-								type: "extension_ui_request",
-								id: Snowflake.next() as string,
-								method: "open_url",
-								url: info.url,
-								launchUrl: info.launchUrl,
-								instructions: info.instructions,
-							} as RpcExtensionUIRequest);
-						},
-						onProgress: message => {
-							uiCtx.notify(message, "info");
-						},
-						onPrompt: async prompt => {
-							if (prompt.secret) {
-								throw new Error(
-									`Provider '${command.providerId}' requires secret input, ` +
-										"which is not supported in RPC mode. Use the terminal UI to log in.",
-								);
-							}
-							if (!authEmitted) {
-								// onPrompt called before any auth URL — provider requires
-								// interactive input that cannot be satisfied headlessly.
-								return Promise.reject(
-									new Error(
-										`Provider '${command.providerId}' requires interactive prompts ` +
-											"which are not supported in RPC mode. Use the terminal UI to log in.",
-									),
-								);
-							}
-							return (await uiCtx.input(prompt.message, prompt.placeholder, { timeout: 600_000 })) ?? "";
-						},
-					});
+					if (apiKeyProvider) {
+						const key = (
+							await onPrompt({ message: `Paste your ${apiKeyProvider.name} API key`, secret: true })
+						).trim();
+						if (!key) {
+							return error(id, "login", `No API key entered for ${apiKeyProvider.name}`);
+						}
+						await session.modelRegistry.authStorage.credentials.upsert(apiKeyProvider.id, {
+							type: "api_key",
+							key,
+							source: "login",
+						});
+					} else if (oauthProvider) {
+						await session.modelRegistry.authStorage.oauth.login(command.providerId, {
+							onAuth: info => {
+								output({
+									type: "extension_ui_request",
+									id: Snowflake.next() as string,
+									method: "open_url",
+									url: info.url,
+									launchUrl: info.launchUrl,
+									instructions: info.instructions,
+								} as RpcExtensionUIRequest);
+							},
+							onProgress: message => {
+								uiCtx.notify(message, "info");
+							},
+							onPrompt,
+						});
+					}
 					// Provider-scoped online refresh so the just-persisted credential
 					// re-runs discovery instead of reusing a fresh authoritative cache
 					// row (#5780).
 					await session.modelRegistry.refreshProvider(
-						knownProvider.storeCredentialsAs ?? knownProvider.id,
+						oauthProvider?.storeCredentialsAs ?? command.providerId,
 						"online",
 					);
 					return success(id, "login", { providerId: command.providerId });

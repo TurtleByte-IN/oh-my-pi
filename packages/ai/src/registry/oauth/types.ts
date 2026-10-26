@@ -80,6 +80,12 @@ export interface OAuthProviderInfo {
 	 * entry back to the model provider it authenticates.
 	 */
 	storeCredentialsAs?: string;
+	/**
+	 * Login takes a pasted API key as its single prompt (a `login "api-key"`
+	 * flow, or a provider with no login flow whose key {@link getApiKeyProviders}
+	 * lists) rather than a browser, device-code, or multi-step flow.
+	 */
+	apiKeyLogin?: boolean;
 }
 
 /** Sign-in URL and accepted cookies for an isolated, host-owned browser. */

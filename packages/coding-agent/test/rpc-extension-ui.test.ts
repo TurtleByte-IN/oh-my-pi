@@ -434,6 +434,199 @@ export default function(pi) {
 			},
 		});
 	}, 30_000);
+
+	it("forwards masked and pre-URL prompts, takes `input` in the command, and signs API-key providers in and out", async () => {
+		await using temp = await TempDir.create("@rpc-login-key-");
+		const extensionPath = temp.join("login.mjs");
+		await Bun.write(
+			extensionPath,
+			`
+export default function(pi) {
+  globalThis.fetch = async () => { throw new Error("Offline login fixture refuses network"); };
+  const model = { id: "fixture", name: "Offline fixture", reasoning: false, input: ["text"], contextWindow: 4096, maxTokens: 512, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+  pi.registerProvider("rpc-preurl", {
+    baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", models: [model],
+    oauth: {
+      name: "rpc-preurl",
+      login: async callbacks => {
+        const endpoint = await callbacks.onPrompt({ message: "Endpoint?" });
+        callbacks.onAuth({ url: "https://example.invalid/keys" });
+        const key = await callbacks.onPrompt({ message: "Key?", secret: true });
+        return endpoint + ":" + key;
+      }
+    }
+  });
+  pi.registerProvider("rpc-keyflow", {
+    baseUrl: "http://127.0.0.1:9/v1", api: "openai-completions", models: [model],
+    oauth: { name: "rpc-keyflow", login: async callbacks => callbacks.onPrompt({ message: "Key?", secret: true }) }
+  });
+}
+`,
+		);
+		const child = Bun.spawn(
+			[
+				process.execPath,
+				path.join(import.meta.dir, "..", "src", "cli.ts"),
+				"--trusted-extension",
+				extensionPath,
+				"--mode",
+				"rpc",
+				"--provider",
+				"anthropic",
+				"--model",
+				"claude-sonnet-4-5",
+			],
+			{
+				cwd: temp.path(),
+				env: {
+					PATH: Bun.env.PATH,
+					HOME: temp.join("home"),
+					PI_CODING_AGENT_DIR: temp.join("agent"),
+					XDG_CONFIG_HOME: temp.join("config"),
+					XDG_DATA_HOME: temp.join("data"),
+					XDG_CACHE_HOME: temp.join("cache"),
+					CI: "true",
+					PI_NO_TITLE: "1",
+					OPENAI_API_KEY: "sk-env-fixture",
+				},
+				stdin: "pipe",
+				stdout: "pipe",
+				stderr: "pipe",
+				timeout: 20_000,
+			},
+		);
+		const stdout = new Response(child.stdout).body;
+		if (!stdout) throw new Error("RPC login fixture did not expose stdout");
+		const stderr = new Response(child.stderr).text();
+		const frames = readJsonl<unknown>(stdout)[Symbol.asyncIterator]();
+		const seen: string[] = [];
+		const uiRequests: Record<string, unknown>[] = [];
+		let nextId = 0;
+		// Sends one command and answers its `input` requests with `answer(title)` until the response arrives.
+		const request = async (
+			frame: Record<string, unknown>,
+			answer: (title: string) => string = () => "",
+		): Promise<Record<string, unknown>> => {
+			const id = `r${nextId++}`;
+			child.stdin.write(`${JSON.stringify({ ...frame, id })}\n`);
+			await child.stdin.flush();
+			for (;;) {
+				const next = await frames.next();
+				if (next.done) throw new Error(`RPC child closed stdout: ${await stderr}`);
+				const value = next.value;
+				seen.push(JSON.stringify(value));
+				if (!isRecord(value)) continue;
+				if (value.type === "extension_ui_request") {
+					// Startup widgets are not part of the login flow.
+					if (value.method === "input" || value.method === "open_url") uiRequests.push(value);
+					if (value.method === "input" && typeof value.id === "string" && typeof value.title === "string") {
+						child.stdin.write(
+							`${JSON.stringify({ type: "extension_ui_response", id: value.id, value: answer(value.title) })}\n`,
+						);
+						await child.stdin.flush();
+					}
+				} else if (value.type === "response" && value.id === id) {
+					return value;
+				}
+			}
+		};
+		const providerById = (response: Record<string, unknown>, providerId: string): unknown => {
+			const providers =
+				isRecord(response.data) && Array.isArray(response.data.providers) ? response.data.providers : [];
+			return providers.find(provider => isRecord(provider) && provider.id === providerId);
+		};
+
+		try {
+			// Prompts before the auth URL now reach the host; the secret one carries `secret: true`.
+			const preUrl = await request({ type: "login", providerId: "rpc-preurl", secretInput: true }, title =>
+				title === "Endpoint?" ? "eu" : "pre-url-secret-key",
+			);
+			expect(preUrl).toMatchObject({ command: "login", success: true, data: { providerId: "rpc-preurl" } });
+			expect(uiRequests.map(req => [req.method, req.title, req.secret])).toEqual([
+				["input", "Endpoint?", undefined],
+				["open_url", undefined, undefined],
+				["input", "Key?", true],
+			]);
+
+			// `input` answers the first prompt in the command: no UI request, no masking declaration needed.
+			uiRequests.length = 0;
+			const keyFlow = await request({ type: "login", providerId: "rpc-keyflow", input: "keyflow-secret-key" });
+			expect(keyFlow).toMatchObject({ command: "login", success: true });
+			expect(uiRequests).toEqual([]);
+
+			// Without `input` or `secretInput` a secret prompt fails instead of reaching an unmasked host.
+			const unmasked = await request({ type: "login", providerId: "rpc-keyflow" });
+			expect(unmasked).toMatchObject({
+				success: false,
+				error: expect.stringContaining("requires secret input"),
+			});
+			expect(uiRequests).toEqual([]);
+
+			const before = await request({ type: "get_login_providers" });
+			expect(providerById(before, "openai")).toEqual({
+				id: "openai",
+				name: "OpenAI",
+				available: true,
+				authenticated: true,
+				apiKey: true,
+				source: "env",
+				envVar: "OPENAI_API_KEY",
+			});
+			expect(providerById(before, "groq")).toMatchObject({ apiKey: true, authenticated: false });
+			expect(providerById(before, "groq")).not.toHaveProperty("source");
+			expect(providerById(before, "cerebras")).toMatchObject({ apiKey: true });
+			expect(providerById(before, "anthropic")).toMatchObject({ apiKey: false });
+			expect(providerById(before, "rpc-keyflow")).toMatchObject({ authenticated: true, source: "api_key" });
+			// Ambient-credential providers take no pasted key, so they are not listed.
+			expect(providerById(before, "amazon-bedrock")).toBeUndefined();
+
+			// An API-key provider without a login flow stores the key `input` carries.
+			const groq = await request({ type: "login", providerId: "groq", input: "  gsk-groq-secret-key  " });
+			expect(groq).toMatchObject({ command: "login", success: true, data: { providerId: "groq" } });
+			const after = await request({ type: "get_login_providers" });
+			expect(providerById(after, "groq")).toMatchObject({ authenticated: true, source: "api_key" });
+
+			// Without `input`, the key is asked for through a masked `input` request.
+			uiRequests.length = 0;
+			const mistral = await request(
+				{ type: "login", providerId: "mistral", secretInput: true },
+				() => "mistral-secret-key",
+			);
+			expect(mistral).toMatchObject({ success: true });
+			expect(uiRequests).toEqual([
+				expect.objectContaining({ method: "input", title: "Paste your Mistral API key", secret: true }),
+			]);
+			const empty = await request({ type: "login", providerId: "aimlapi", input: "   " });
+			expect(empty).toMatchObject({ success: false, error: "No API key entered for AIML API" });
+			const unknown = await request({ type: "login", providerId: "no-such-provider", input: "x" });
+			expect(unknown).toMatchObject({ success: false, error: "Unknown login provider: no-such-provider" });
+
+			const accounts = await request({ type: "get_logout_accounts", providerId: "groq" });
+			// Read before asserting: bun's asymmetric `toMatchObject` leaves matched array entries empty.
+			const credentialId =
+				isRecord(accounts.data) && Array.isArray(accounts.data.accounts) && isRecord(accounts.data.accounts[0])
+					? accounts.data.accounts[0].credentialId
+					: undefined;
+			expect(accounts).toMatchObject({
+				success: true,
+				data: { accounts: [expect.objectContaining({ provider: "groq", type: "api_key", active: true })] },
+			});
+			const logout = await request({ type: "logout", providerId: "groq", credentialId });
+			expect(logout).toMatchObject({ command: "logout", success: true });
+			const loggedOut = await request({ type: "get_login_providers" });
+			expect(providerById(loggedOut, "groq")).toMatchObject({ authenticated: false });
+		} finally {
+			child.stdin.end();
+			child.kill();
+			await child.exited;
+		}
+
+		// Keys travel host → omp only: no frame or log line echoes them back.
+		const output = `${seen.join("\n")}\n${await stderr}`;
+		for (const key of ["pre-url-secret-key", "keyflow-secret-key", "gsk-groq-secret-key", "mistral-secret-key"]) {
+			expect(output).not.toContain(key);
+		}
+	}, 30_000);
 });
 
 describe("RPC ask dialog", () => {

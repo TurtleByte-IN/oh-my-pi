@@ -221,9 +221,12 @@ and first-run setup preserve the exact submitted value while hiding it in the
 input, retained answers, and input diagnostic previews. Login prompts do not
 share undo or kill/yank history. Ordinary prompts remain unmasked.
 
-RPC rejects secret prompts instead of forwarding them as ordinary input. SDK
-hosts implementing `onPrompt` must honor `secret` or reject the prompt. Masking
-does not provide encryption, memory erasure, or general log redaction.
+RPC forwards a secret prompt as an `input` request marked `secret: true` only to
+hosts whose `login` sets `secretInput: true`, and otherwise fails the login unless
+the command's `input` already answered it; it never forwards one as ordinary
+input. SDK hosts implementing `onPrompt` must honor `secret` or reject the
+prompt. Masking does not provide encryption, memory erasure, or general log
+redaction.
 
 ### Command-backed providers
 
