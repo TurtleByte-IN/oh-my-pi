@@ -83,6 +83,7 @@ import { pageRpcMessages, RPC_MESSAGES_PAGE_BUSY_ERROR, RpcMessagesPageError } f
 import { RpcBtwController } from "./rpc-btw";
 import { RpcGoalController } from "./rpc-goal";
 import { RpcLiveBridge, type RpcLiveSessionFactory } from "./rpc-live";
+import { RpcCollabBridge } from "./rpc-collab";
 import { RpcOutputWriter } from "./rpc-output";
 import {
 	RpcExtensionUserMessageTracker,
@@ -441,6 +442,7 @@ const BACKGROUND_COMMANDS: ReadonlySet<string> = new Set<RpcCommand["type"]>([
 	"bash",
 	"predict_word",
 	"live_start",
+	"collab_start",
 	"btw_cancel",
 ]);
 
@@ -460,13 +462,15 @@ const BACKGROUND_COMMANDS: ReadonlySet<string> = new Set<RpcCommand["type"]>([
  * while a `prompt` or `steer_subagent` is still admitting. `predict_word` is
  * backgrounded too, so a cold prediction engine never stalls the command queue
  * behind a keystroke. `live_start` responds only once the realtime session is
- * connected and recording, so it is backgrounded and `live_stop` can cancel it.
+ * connected and recording, so it is backgrounded and `live_stop` can cancel it;
+ * `collab_start` likewise waits for the relay to open the room, and `collab_stop`
+ * can cancel it.
  * Response correlation is preserved via each command's `id`; ordering across
  * concurrent commands is not guaranteed and clients MUST match on `id`.
  *
  * @returns `undefined` when the frame was routed to a side-channel handler
  *   (extension UI response, host tool/URI frames) or dispatched in the
- *   background (`bash`, `predict_word`, `live_start`, `prompt`, `steer`, `follow_up`, `steer_subagent`,
+ *   background (`bash`, `predict_word`, `live_start`, `collab_start`, `prompt`, `steer`, `follow_up`, `steer_subagent`,
  *   `revive_subagent`). Otherwise a promise that
  *   resolves once the response for the command has been emitted via `output`.
  *   Errors from `handleCommand` on a command dispatched inline propagate; the
@@ -1494,6 +1498,8 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	const hostCwdBridge = new RpcHostCwdBridge(output);
 	// Live frames go straight to `output`, so `set_event_filter` (session events only) never drops them.
 	const liveBridge = new RpcLiveBridge(session, output, createLiveSession);
+	// Collab frames carry no links; `collab_start`/`collab_status` responses do.
+	const collabBridge = new RpcCollabBridge(session, output, { subagentEventBus });
 	const subagentRegistry = subagentEventBus ? new RpcSubagentRegistry(subagentEventBus, output) : undefined;
 
 	// Shutdown request flag (wrapped in object to allow mutation with const)
@@ -1801,6 +1807,8 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			});
 			// Close the realtime call (microphone, socket) before the session it delegates into.
 			await liveBridge.stop();
+			// Guests get a goodbye and the room leaves the local registry before the session closes.
+			await collabBridge.shutdown();
 			await session.dispose();
 		} catch (error) {
 			if (!persistenceFailure || error !== persistenceFailure) throw error;
@@ -2375,6 +2383,29 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 				}
 			}
 
+			case "collab_start": {
+				if (command.access !== undefined && command.access !== "view" && command.access !== "control") {
+					return error(id, "collab_start", 'access must be "view" or "control"');
+				}
+				try {
+					return success(
+						id,
+						"collab_start",
+						await collabBridge.start({ access: command.access, relay: command.relay }),
+					);
+				} catch (err) {
+					return error(id, "collab_start", err instanceof Error ? err.message : String(err));
+				}
+			}
+
+			case "collab_stop": {
+				return success(id, "collab_stop", { stopped: await collabBridge.stop() });
+			}
+
+			case "collab_status": {
+				return success(id, "collab_status", collabBridge.status());
+			}
+
 			case "set_host_uri_schemes": {
 				try {
 					const schemes = hostUriBridge.setSchemes(command.schemes);
@@ -2945,6 +2976,9 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 	hostUriBridge.clear("RPC client disconnected before host URI request completed");
 	hostCwdBridge.rejectAllPending("RPC client disconnected before the host answered a directory change");
 	await liveBridge.stop();
+	// The client is gone: no one watches the session, so end the room (guests could still prompt
+	// it while accepted work drains) and cancel a pending `collab_start` before draining.
+	await collabBridge.shutdown();
 	await inputDispatcher.drain();
 	// A backgrounded builtin (e.g. a /mcp reauth browser wait) must not park
 	// the drain: tear it down now that the client is gone.

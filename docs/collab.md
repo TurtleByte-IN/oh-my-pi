@@ -90,6 +90,10 @@ How it works: each room publishes its own private IPC endpoint (a Unix domain so
 
 A missing registry directory means no active hosts. An unreadable or symlinked registry directory is a listing error, not a successful empty result; POSIX also rejects foreign-owned directories. Individual unreachable or malformed host entries are still omitted independently. The CLI exits nonzero for a directory error; `/collab list` displays a sanitized, bounded error and leaves the TUI usable.
 
+### Hosting from an RPC client
+
+A GUI driving omp over `--mode rpc` / `rpc-ui` hosts its session with the `collab_start`, `collab_stop`, and `collab_status` commands (see [RPC collab hosting](rpc.md#collab-hosting-sub-protocol)); they drive the same controller as `/collab`. RPC sessions never follow `collab.autoStart`: a room exists only after `collab_start`, and one that ends on its own (relay close, session switch) is not replaced. The links are returned only in the command responses; the `collab_state` frame that reports a room starting, gaining or losing a guest, or ending carries none. Anyone holding a link reaches the session through the relay, outside any pairing or access control the GUI has of its own, so the GUI should say so before showing one.
+
 ## Link format
 
 Accepted by `/join <link>` and `omp join "<link>"`:

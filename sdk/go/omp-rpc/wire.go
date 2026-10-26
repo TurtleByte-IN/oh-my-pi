@@ -5240,6 +5240,132 @@ func (v LiveEndEvent) MarshalJSON() ([]byte, error) {
 	return encodeObject(plain(v), `"type":"live_end"`, nil)
 }
 
+// What a collab link grants: `view` watches the session; `control` also lets guests prompt and interrupt it. Over RPC guests never see dialogs; they go to the RPC host.
+type CollabAccess string
+
+const (
+	CollabAccessView    CollabAccess = "view"
+	CollabAccessControl CollabAccess = "control"
+)
+
+func (v *CollabAccess) UnmarshalJSON(data []byte) error {
+	s, err := decodeString(data, "CollabAccess")
+	if err != nil {
+		return err
+	}
+	switch value := CollabAccess(s); value {
+	case CollabAccessView, CollabAccessControl:
+		*v = value
+		return nil
+	}
+	return unknownValue("CollabAccess", s)
+}
+
+type CollabParticipant struct {
+	Name string                `json:"name"`
+	Role CollabParticipantRole `json:"role"`
+	// True for a guest that joined through a view link.
+	ReadOnly *bool `json:"readOnly,omitempty"`
+}
+
+func (v *CollabParticipant) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "CollabParticipant", v.decodeFrom)
+}
+
+func (v *CollabParticipant) decodeFrom(raw map[string]json.RawMessage) error {
+	var out CollabParticipant
+	d := fieldDecoder{raw: raw, owner: "CollabParticipant"}
+	d.required("name", &out.Name)
+	d.required("role", &out.Role)
+	d.optional("readOnly", &out.ReadOnly)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+type CollabParticipantRole string
+
+const (
+	CollabParticipantRoleHost  CollabParticipantRole = "host"
+	CollabParticipantRoleGuest CollabParticipantRole = "guest"
+)
+
+func (v *CollabParticipantRole) UnmarshalJSON(data []byte) error {
+	s, err := decodeString(data, "CollabParticipantRole")
+	if err != nil {
+		return err
+	}
+	switch value := CollabParticipantRole(s); value {
+	case CollabParticipantRoleHost, CollabParticipantRoleGuest:
+		*v = value
+		return nil
+	}
+	return unknownValue("CollabParticipantRole", s)
+}
+
+// This session's collab room. Links are present only while `active`; anyone holding one reaches the session through the relay, outside any access control of the RPC host.
+type CollabStatus struct {
+	Active bool `json:"active"`
+	// Host first; empty when no room is active.
+	Participants []CollabParticipant `json:"participants"`
+	Access       *CollabAccess       `json:"access,omitempty"`
+	// `omp join` link for the granted access; a capability, never logged.
+	Link *string `json:"link,omitempty"`
+	// Browser link for the granted access; a capability, never logged.
+	WebLink        *string `json:"webLink,omitempty"`
+	RelayConnected *bool   `json:"relayConnected,omitempty"`
+}
+
+func (v *CollabStatus) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "CollabStatus", v.decodeFrom)
+}
+
+func (v *CollabStatus) decodeFrom(raw map[string]json.RawMessage) error {
+	var out CollabStatus
+	d := fieldDecoder{raw: raw, owner: "CollabStatus"}
+	d.required("active", &out.Active)
+	d.required("participants", &out.Participants)
+	d.optional("access", &out.Access)
+	d.optional("link", &out.Link)
+	d.optional("webLink", &out.WebLink)
+	d.optional("relayConnected", &out.RelayConnected)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+// The collab room started, gained or lost a guest, or ended (stop, session change, relay close). Carries no links; call `collab_status` for them.
+type CollabStateEvent struct {
+	Active           bool  `json:"active"`
+	ParticipantCount int64 `json:"participantCount"`
+}
+
+func (v *CollabStateEvent) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "CollabStateEvent", v.decodeFrom)
+}
+
+func (v *CollabStateEvent) decodeFrom(raw map[string]json.RawMessage) error {
+	var out CollabStateEvent
+	d := fieldDecoder{raw: raw, owner: "CollabStateEvent"}
+	d.constant("type", "collab_state")
+	d.required("active", &out.Active)
+	d.required("participantCount", &out.ParticipantCount)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+func (v CollabStateEvent) MarshalJSON() ([]byte, error) {
+	type plain CollabStateEvent
+	return encodeObject(plain(v), `"type":"collab_state"`, nil)
+}
+
 // Text appended to the running side question's latest answer.
 type BtwDeltaEvent struct {
 	RecordID string `json:"recordId"`
@@ -6733,6 +6859,7 @@ func (LivePhaseEvent) isRpcNotification()               {}
 func (LiveLevelsEvent) isRpcNotification()              {}
 func (LiveTranscriptEvent) isRpcNotification()          {}
 func (LiveEndEvent) isRpcNotification()                 {}
+func (CollabStateEvent) isRpcNotification()             {}
 func (BtwDeltaEvent) isRpcNotification()                {}
 func (BtwRecordEvent) isRpcNotification()               {}
 func (CommandOutputEvent) isRpcNotification()           {}
@@ -6812,6 +6939,8 @@ func (v *RpcNotification) UnmarshalJSON(data []byte) error {
 		value, err = decodeVariant[LiveTranscriptEvent](raw)
 	case "live_end":
 		value, err = decodeVariant[LiveEndEvent](raw)
+	case "collab_state":
+		value, err = decodeVariant[CollabStateEvent](raw)
 	case "btw_delta":
 		value, err = decodeVariant[BtwDeltaEvent](raw)
 	case "btw_record":
@@ -6931,6 +7060,7 @@ func (LivePhaseEvent) isRpcServerFrame()               {}
 func (LiveLevelsEvent) isRpcServerFrame()              {}
 func (LiveTranscriptEvent) isRpcServerFrame()          {}
 func (LiveEndEvent) isRpcServerFrame()                 {}
+func (CollabStateEvent) isRpcServerFrame()             {}
 func (BtwDeltaEvent) isRpcServerFrame()                {}
 func (BtwRecordEvent) isRpcServerFrame()               {}
 func (CommandOutputEvent) isRpcServerFrame()           {}
@@ -7024,6 +7154,8 @@ func (v *RpcServerFrame) UnmarshalJSON(data []byte) error {
 		value, err = decodeVariant[LiveTranscriptEvent](raw)
 	case "live_end":
 		value, err = decodeVariant[LiveEndEvent](raw)
+	case "collab_state":
+		value, err = decodeVariant[CollabStateEvent](raw)
 	case "btw_delta":
 		value, err = decodeVariant[BtwDeltaEvent](raw)
 	case "btw_record":
@@ -7482,6 +7614,25 @@ func (v *LiveMuteResult) decodeFrom(raw map[string]json.RawMessage) error {
 	var out LiveMuteResult
 	d := fieldDecoder{raw: raw, owner: "LiveMuteResult"}
 	d.required("muted", &out.Muted)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
+type CollabStopResult struct {
+	Stopped bool `json:"stopped"`
+}
+
+func (v *CollabStopResult) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "CollabStopResult", v.decodeFrom)
+}
+
+func (v *CollabStopResult) decodeFrom(raw map[string]json.RawMessage) error {
+	var out CollabStopResult
+	d := fieldDecoder{raw: raw, owner: "CollabStopResult"}
+	d.required("stopped", &out.Stopped)
 	if d.err != nil {
 		return d.err
 	}
@@ -8191,6 +8342,34 @@ func (c Commands) LiveMute(ctx context.Context, p LiveMuteCommand) (bool, error)
 	var out LiveMuteResult
 	err := c.call(ctx, "live_mute", p, 0, &out)
 	return out.Muted, err
+}
+
+// CollabStartCommand holds the parameters of "collab_start".
+type CollabStartCommand struct {
+	Access *CollabAccess `json:"access,omitempty"`
+	// Relay override (`host[:port]` or a URL); defaults to `collab.relayUrl`.
+	Relay *string `json:"relay,omitempty"`
+}
+
+// CollabStart sends "collab_start": Host this session in a collab room (or reuse the live one granting at least `access`, default control) and return its links.
+func (c Commands) CollabStart(ctx context.Context, p CollabStartCommand) (CollabStatus, error) {
+	var out CollabStatus
+	err := c.call(ctx, "collab_start", p, 30*time.Second, &out)
+	return out, err
+}
+
+// CollabStop sends "collab_stop": End this session's collab room, telling guests goodbye, and cancel a start still connecting; false when there was neither.
+func (c Commands) CollabStop(ctx context.Context) (bool, error) {
+	var out CollabStopResult
+	err := c.call(ctx, "collab_stop", nil, 0, &out)
+	return out.Stopped, err
+}
+
+// CollabStatus sends "collab_status": Report this session's collab room and its links.
+func (c Commands) CollabStatus(ctx context.Context) (CollabStatus, error) {
+	var out CollabStatus
+	err := c.call(ctx, "collab_status", nil, 0, &out)
+	return out, err
 }
 
 // SetModelCommand holds the parameters of "set_model".

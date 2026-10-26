@@ -102,6 +102,7 @@ Clients MUST continue reading stdout after closing stdin. Normal EOF and extensi
 14. Builtin slash-command side channels (`command_output`, `session_info_update`, `config_update`)
 15. Transport overflow notifications (`rpc_frame_error`), when an event cannot fit within the transport limits
 16. Live voice frames (`live_phase`, `live_levels`, `live_transcript`, `live_end`); see [Live Voice Sub-Protocol](#live-voice-sub-protocol)
+17. Collab room frames (`collab_state`); see [Collab Hosting Sub-Protocol](#collab-hosting-sub-protocol)
 
 Protocol v2 may wrap oversized logical frames from these categories in `rpc_chunk` frames.
 
@@ -1636,6 +1637,57 @@ Live frames are not session events: `set_event_filter` never drops them.
 
 Closing stdin, or `pi.shutdown()`, stops an active live session before the
 process exits.
+
+## Collab Hosting Sub-Protocol
+
+RPC hosts can share the RPC session live through the collab relay, as `/collab`
+does in the terminal (see [Collab](collab.md)). Guests join with `omp join` or a
+browser and see the session as it runs; with control access they can also
+prompt and interrupt it, and their prompts run in this session like any other
+turn. Guests never see dialogs over RPC: extension UI and tool approvals go to
+the RPC host only. At most one room exists per RPC server. RPC sessions never
+follow `collab.autoStart`: rooms start only on `collab_start`.
+
+### Commands
+
+- `{ id?, type: "collab_start", access?: "view" | "control", relay?: string }` → `data: CollabStatus`
+- `{ id?, type: "collab_stop" }` → `data: { stopped: boolean }`
+- `{ id?, type: "collab_status" }` → `data: CollabStatus`
+
+`CollabStatus` is `{ active, access?, link?, webLink?, relayConnected?, participants }`.
+`link` is the `omp join` link and `webLink` the browser link for the granted
+access; both are capabilities and should never be logged. `participants` lists
+the host first, then guests (`readOnly: true` for view guests); it is empty when
+no room is active.
+
+`collab_start` responds once the relay has opened the room, so it is dispatched
+concurrently like `live_start`; a `collab_stop` sent meanwhile cancels it and
+the pending `collab_start` fails. `access` defaults to `control`. A live room
+that already grants the requested access is reused; a view room is replaced when
+control is requested. A view room never hands out its write token. `relay`
+overrides `collab.relayUrl` (`host[:port]` or a URL); the start fails when
+neither names a relay or the relay does not answer within 15 seconds.
+
+`collab_stop` tells guests goodbye, withdraws the room from the local host
+registry (`omp collab list`), and cancels a `collab_start` still connecting;
+`stopped` is false only when there was neither a room nor a pending start.
+
+```json
+{ "id": "c1", "type": "collab_start", "access": "view" }
+{ "id": "c1", "type": "response", "command": "collab_start", "success": true, "data": { "active": true, "access": "view", "link": "…", "webLink": "https://my.omp.sh/#…", "relayConnected": true, "participants": [{ "name": "ana", "role": "host" }] } }
+```
+
+### Frames
+
+- `{ type: "collab_state", active: boolean, participantCount: number }` whenever
+  the room starts, gains or loses a guest, or ends: `collab_stop`, a session
+  change (`new_session`, `switch_session`, `branch`, `fork`), a relay that closes
+  the room for good, or shutdown. It carries no links; call `collab_status` for
+  them. Collab frames are not session events: `set_event_filter` never drops them.
+
+Closing stdin ends an active room (guests get a goodbye) and cancels a pending
+`collab_start` before accepted work drains, so no guest can drive a session
+whose client is gone; `pi.shutdown()` ends it before the process exits.
 
 ## Host URI Sub-Protocol
 

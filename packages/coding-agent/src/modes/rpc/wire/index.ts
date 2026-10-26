@@ -75,6 +75,7 @@ const notificationDefs = {
 			"LiveLevelsEvent",
 			"LiveTranscriptEvent",
 			"LiveEndEvent",
+			"CollabStateEvent",
 			"BtwDeltaEvent",
 			"BtwRecordEvent",
 			"CommandOutputEvent",
