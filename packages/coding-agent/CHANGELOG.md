@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- Fixed `read` of a zip, asar or ISO archive listing its old members after the archive was rewritten in place within a few milliseconds of an earlier read on Linux, where file change times advance in coarse ticks; an archive changed in the last two seconds is no longer cached
+- Fixed a browser attach whose debugger websocket refuses the upgrade reporting only `Unexpected server response: 404` under Bun 1.4.4+; the error names the websocket URL again
 - Fixed `omp gc --compress` exiting with "the event loop drained while it was still pending" on Bun 1.3.14 when a session artifact is pretty-printed JSON larger than 1 MiB, and session header probes (gc, session move and transfer) reading whole artifacts on Windows ([#15745](https://github.com/can1357/oh-my-pi/issues/15745), [#16754](https://github.com/can1357/oh-my-pi/pull/16754) by [@wolfiesch](https://github.com/wolfiesch))
 - `/resume` into another session now cancels the previous session's background jobs, as `/new` does, instead of delivering their results into the resumed session and starting a turn there ([#16760](https://github.com/can1357/oh-my-pi/pull/16760) by [@will-bogusz](https://github.com/will-bogusz))
 - Fixed the models config migration writing `models.yml` readable by other users on the machine, and dropping every custom provider when the write was interrupted; the migrated file is now published atomically with owner-only permissions ([#16654](https://github.com/can1357/oh-my-pi/pull/16654) by [@adi-IL](https://github.com/adi-IL))
