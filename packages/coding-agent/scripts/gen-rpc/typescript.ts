@@ -44,7 +44,8 @@ function docComment(text: string | undefined, indent: string): string {
 	return `${indent}/**\n${lines.map(line => `${indent} * ${line}`).join("\n")}\n${indent} */\n`;
 }
 
-function renderDef(def: WireDef): string {
+/** Renders one definition as a TypeScript type alias or interface. */
+export function renderDef(def: WireDef): string {
 	const head = docComment(def.doc, "");
 	if (def.kind === "alias") return `${head}export type ${def.name} = ${render(def.type)};\n`;
 	const fields = def.fields

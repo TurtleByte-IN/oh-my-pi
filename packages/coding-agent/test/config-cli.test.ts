@@ -229,6 +229,7 @@ describe("config CLI schema coverage", () => {
 			await runConfigCommand({ action: "set", key: "compaction.enabled", value: "true", flags: { json: true } });
 			expect(JSON.parse(String(logSpy.mock.calls.at(-1)?.[0]))).toEqual({
 				key: "compaction.enabled",
+				scope: "global",
 				value: true,
 				overriddenBy: "overlay",
 			});

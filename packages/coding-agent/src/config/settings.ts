@@ -28,6 +28,7 @@ import {
 	isRecord,
 	logger,
 	MAIN_CONFIG_FILENAMES,
+	normalizePathForComparison,
 	procmgr,
 } from "@oh-my-pi/pi-utils";
 import { withFileLock } from "@oh-my-pi/pi-utils/file-lock";
@@ -633,6 +634,8 @@ export class Settings {
 	#modified = new Map<string, readonly string[]>();
 	/** Individual project model roles modified during this session */
 	#modifiedProjectModelRoles = new Set<string>();
+	/** Project-layer setting paths written during this session, keyed like {@link #modified}; saved to `<cwd>/.omp/config.yml`. */
+	#modifiedProjectPaths = new Map<string, readonly string[]>();
 	/** Individual global model roles modified during this session (for partial save) */
 	#modifiedGlobalModelRoles = new Set<string>();
 	/** On-disk generations and prior values observed before each pending global mutation, keyed like {@link #modified}. */
@@ -934,6 +937,40 @@ export class Settings {
 		this.#rebuildMerged();
 		if (current !== undefined) this.#queueSave();
 		this.#fireIfChanged(setting, prev);
+	}
+
+	/**
+	 * Registry plumbing behind `Setting.setProject` / `Setting.unsetProject`: writes `value` for
+	 * `setting` to the project layer (`undefined` removes it), persisted in the background to this
+	 * scope's native `<cwd>/.omp/config.yml`, then notifies change listeners. Other project files
+	 * (`.omp/settings.json`, `.claude/settings.json`, …) are never written.
+	 *
+	 * @throws Error when the value does not fit the definition, or when this scope is the home
+	 * directory (project settings are not read there).
+	 */
+	writeProjectValue(setting: AnySetting, value: unknown): void {
+		if (normalizePathForComparison(path.resolve(this.#cwd)) === normalizePathForComparison(os.homedir())) {
+			throw new Error(`Project settings are not read from the home directory (${this.#cwd})`);
+		}
+		if (value !== undefined) setting.assertWritable(value);
+		const segments = setting.segments;
+		const key = JSON.stringify(segments);
+		// Only `.omp/config.yml` is written: removing a key that neither it nor a pending write holds is a
+		// no-op, so a value another project file (`.claude/settings.json`, …) supplies stays in place.
+		if (
+			value === undefined &&
+			!this.#modifiedProjectPaths.has(key) &&
+			getByPath(this.#projectFileSettings, segments) === undefined
+		)
+			return;
+		const prev = setting.get(this);
+		if (value === undefined) deleteByPath(this.#project, segments);
+		else setByPath(this.#project, segments, value);
+		this.#modifiedProjectPaths.set(key, segments);
+		this.#persistedMutationGeneration++;
+		this.#rebuildMerged();
+		this.#fireIfChanged(setting, prev);
+		this.#queueProjectSave();
 	}
 
 	/**
@@ -1272,7 +1309,7 @@ export class Settings {
 		if (this.#modified.size > 0 || this.#modifiedGlobalModelRoles.size > 0) {
 			await this.#chainSave();
 		}
-		if (this.#modifiedProjectModelRoles.size > 0) {
+		if (this.#modifiedProjectModelRoles.size > 0 || this.#modifiedProjectPaths.size > 0) {
 			await this.#saveProjectNow();
 		}
 	}
@@ -3808,11 +3845,21 @@ export class Settings {
 		}
 	}
 
-	/** Re-applies every project model role still pending a save onto `target`, a project layer read from disk. */
+	/** Re-applies every project write still pending a save onto `target`, a project layer read from disk. */
 	#applyPendingProjectWrites(target: RawSettings): void {
+		this.#copyProjectPaths(this.#modifiedProjectPaths.values(), target);
 		const liveRoles = getByPath(this.#project, ["modelRoles"]);
 		for (const role of this.#modifiedProjectModelRoles) {
 			setByPath(target, ["modelRoles", role], isRecord(liveRoles) ? liveRoles[role] : undefined);
+		}
+	}
+
+	/** Copies the project layer's value at each of `paths` onto `target`, removing the paths it no longer sets. */
+	#copyProjectPaths(paths: Iterable<readonly string[]>, target: RawSettings): void {
+		for (const segments of paths) {
+			const value = getByPath(this.#project, segments);
+			if (value === undefined) deleteByPath(target, segments);
+			else setByPath(target, segments, structuredClone(value));
 		}
 	}
 
@@ -3837,11 +3884,18 @@ export class Settings {
 	}
 
 	async #saveProjectNow(): Promise<void> {
-		if (this.#savesCancelled || !this.#persist || this.#modifiedProjectModelRoles.size === 0) return;
+		if (
+			this.#savesCancelled ||
+			!this.#persist ||
+			(this.#modifiedProjectModelRoles.size === 0 && this.#modifiedProjectPaths.size === 0)
+		)
+			return;
 
 		const projectConfigPath = path.join(getProjectAgentDir(this.#cwd), "config.yml");
 		const modifiedModelRoles = [...this.#modifiedProjectModelRoles];
+		const modifiedPaths = new Map(this.#modifiedProjectPaths);
 		this.#modifiedProjectModelRoles.clear();
+		this.#modifiedProjectPaths.clear();
 
 		try {
 			await fs.promises.mkdir(path.dirname(projectConfigPath), { recursive: true });
@@ -3851,6 +3905,7 @@ export class Settings {
 					loaded.settings ??
 					(this.#quarantinedYamlTargets.has(projectConfigPath) ? structuredClone(this.#projectFileSettings) : {});
 
+				this.#copyProjectPaths(modifiedPaths.values(), projectSettings);
 				const projectRoles = getByPath(this.#project, ["modelRoles"]);
 				for (const role of modifiedModelRoles) {
 					const value = isRecord(projectRoles) ? projectRoles[role] : undefined;
@@ -3865,6 +3920,9 @@ export class Settings {
 		} catch (error) {
 			for (const role of modifiedModelRoles) {
 				this.#modifiedProjectModelRoles.add(role);
+			}
+			for (const [key, segments] of modifiedPaths) {
+				if (!this.#modifiedProjectPaths.has(key)) this.#modifiedProjectPaths.set(key, segments);
 			}
 			throw error;
 		}

@@ -160,6 +160,7 @@ Each setting is declared once with `register({ id, type, default, env?, protocol
 - `cfgX.get(scope)` — effective value; `scope` is a `Settings` instance or anything carrying one (`AgentSession`, `ToolSession`). Reads are memoized per scope.
 - `cfgX.set(scope, v)` — writes the **global** layer and queues a background save; values the definition's type rejects throw.
 - `cfgX.unset(scope)` — removes the key from the global layer (what `omp config reset` and clearing a settings-panel text field do), so later default changes still apply.
+- `cfgX.setProject(scope, v)` / `cfgX.unsetProject(scope)` — write or remove the key in the project layer of the scope's working directory, persisted to `<cwd>/.omp/config.yml` only (what `omp config set|reset --scope project` do); other project settings files are never written, and the home directory is refused.
 - `cfgX.setEntry(scope, key, v)` / `cfgX.setMember(scope, item, { member })` — write one entry of a record setting (`undefined` removes it) or add/remove one item of a list setting in the global layer; the save changes only that entry or item in `config.yml`, so entries another layer (a `--config` overlay) supplies never land there.
 - `cfgX.override(scope, v)` / `cfgX.clearOverride(scope)` — runtime-only override, never persisted.
 - `cfgX.map(fn)` / `combine({...}, fn)` — memoized derived values; `.listen(scope, cb)` observes changes of a handle or derivation.

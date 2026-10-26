@@ -93,3 +93,41 @@ The contract version in a release is the one at that fork tag (`v<upstream-versi
 3. At runtime, read `contractVersion` from `ready` (or from the `negotiate_protocol` response) and compare it with the pinned version. Refuse to drive a sidecar whose version differs from the pin, or is absent. A host that accepts a range instead should accept a sidecar only when its major version equals the pinned major and its minor version is equal to or greater than the pinned minor.
 
 `schemaHash` identifies the shape across tags: two releases with the same hash expose the same wire shape.
+
+## CLI JSON contract
+
+Hosts also drive a few `omp` subcommands and parse their `--json` output. Those outputs form a second contract with its own semver, `cliContractVersion`. It is independent of the RPC `contractVersion`: a change to one never requires a bump of the other.
+
+| Command | Output definition |
+| --- | --- |
+| `omp config list --json [--cwd <path>]` | `CliConfigList`: `{ value?, redacted?, type, description, source }` per setting key; `source` is the layer supplying the effective value (`default`, `global`, `project`, `overlay`, `runtime`, `env`). Configured credentials carry `redacted: true` and no `value`. |
+| `omp config set <key> <value> --json [--scope global\|project] [--cwd <path>]` | `CliConfigSetResult`: `{ key, scope, value?, overriddenBy?, fallbackEnv? }` |
+| `omp config reset <key> --json [--scope global\|project] [--cwd <path>]` | `CliConfigResetResult`: `{ key, scope, value?, redacted? }` |
+| `omp models [ls\|find\|refresh] [pattern] --json [--kind <kind>]` | `CliModelsList`: `{ models: CliModel[] }` |
+| `omp plugin list --json` | `CliPluginList`: `{ npm: CliNpmPlugin[], marketplace: CliMarketplacePlugin[] }` |
+| `omp skill list [dir] --json` | `CliSkillList`: `{ skills: CliSkill[], warnings: CliSkillWarning[] }` |
+
+The definitions are omptype schemas in `packages/coding-agent/src/cli/contract`. Objects omp owns reject undeclared keys, so adding a field changes the shape. Three values pass third-party data through and stay open: a plugin's `manifest` (its package.json `omp`/`pi` field verbatim), the install records of the Claude-compatible `installed_plugins.json` registry, and extra pricing keys on a model's `cost`. Only their declared fields are part of the contract.
+
+`bun run gen:rpc` writes the CLI contract into `packages/rpc-contract` next to the RPC files:
+
+| File | Content |
+| --- | --- |
+| `cli-contract.schema.json` | JSON Schema 2020-12 bundle of every output definition, plus the `x-cli` command table (`name`, `usage`, `output`). |
+| `cli-contract.json` | `{ cliContractVersion, schemaHash, schema }`. |
+| `src/cli.generated.ts` | `CLI_CONTRACT_VERSION`, `CLI_CONTRACT_SCHEMA_HASH`, a TypeScript type per definition, and `CliJsonOutputs` (each command's output type by command name). |
+
+```ts
+import { CLI_CONTRACT_VERSION, type CliJsonOutputs } from "@oh-my-pi/rpc-contract";
+import cliSchema from "@oh-my-pi/rpc-contract/cli-contract.schema.json" with { type: "json" };
+```
+
+The shape hash follows the RPC rules above; a command's `usage` text is documentation and does not count. The history is `packages/coding-agent/src/cli/contract/contract-history.json`, append-only like the RPC history. `test/rpc-wire/cli-contract.test.ts` (part of the `RPC contract` CI job, with the same `OMP_RPC_CONTRACT_BASE_REF` handling) fails in these cases:
+
+- The bundle's shape hash differs from the last history entry, or a history entry already on the base branch was edited, removed, or reordered.
+- The versions are not ascending semver.
+- A command's real output no longer matches its definition. The test runs `config list` with a value from every source layer and a configured credential, `config set` and `config reset` in both scopes, `plugin list` with a linked npm plugin and a marketplace install, and `skill list` on a project with a skill, and renders `models --json` for every bundled catalog model.
+
+To change an output: change the command, update its definition in `src/cli/contract/index.ts`, run `bun run gen:rpc` (it prints the new hash and exits 1), append `{ "version": "<next>", "schemaHash": "<printed hash>" }` to the CLI history using the semver rules above, run `bun run gen:rpc` again, and add a `CHANGELOG.md` entry naming the new CLI contract version. The `packages/rpc-contract/package.json` version stays the RPC contract version.
+
+A host vendors the CLI files from the same fork tag as the RPC files and checks them the same way. The binary at that tag implements the vendored `cliContractVersion`; no subcommand reports it at runtime, so the tag pin is the check.

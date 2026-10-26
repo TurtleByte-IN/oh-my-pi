@@ -3,7 +3,7 @@
 	"name": "@oh-my-pi/rpc-contract",
 	"version": "1.2.0",
 	"private": true,
-	"description": "Generated omp RPC contract: TypeScript types, JSON Schema, and contract version for every command, response, and frame",
+	"description": "Generated omp RPC contract and CLI JSON contract: TypeScript types, JSON Schemas, and contract versions",
 	"homepage": "https://omp.sh",
 	"license": "MIT",
 	"repository": {
@@ -27,6 +27,8 @@
 		"src",
 		"rpc-wire.schema.json",
 		"contract.json",
+		"cli-contract.schema.json",
+		"cli-contract.json",
 		"README.md"
 	],
 	"exports": {
@@ -35,6 +37,8 @@
 			"import": "./src/index.ts"
 		},
 		"./rpc-wire.schema.json": "./rpc-wire.schema.json",
-		"./contract.json": "./contract.json"
+		"./contract.json": "./contract.json",
+		"./cli-contract.schema.json": "./cli-contract.schema.json",
+		"./cli-contract.json": "./cli-contract.json"
 	}
 }

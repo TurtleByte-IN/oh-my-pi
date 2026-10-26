@@ -5,11 +5,13 @@
  * The settings registry (`config/registry.ts`) is the source of truth for available settings.
  */
 
-import { APP_NAME, getAgentDir, isRecord } from "@oh-my-pi/pi-utils";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { APP_NAME, getAgentDir, getProjectAgentDir, isEnoent, isEnotdir, isRecord } from "@oh-my-pi/pi-utils";
 import chalk from "@oh-my-pi/pi-utils/chalk";
 import { orderedSettings } from "../config/all-settings";
 import { type AnySetting, lookup } from "../config/registry";
-import { Settings, settings } from "../config/settings";
+import { type SettingProvenance, Settings, settings } from "../config/settings";
 import { theme } from "@oh-my-pi/pi-tui/theme";
 import { initXdg } from "./commands/init-xdg";
 
@@ -19,12 +21,19 @@ import { initXdg } from "./commands/init-xdg";
 
 export type ConfigAction = "list" | "get" | "set" | "reset" | "path" | "init-xdg";
 
+/** Layer `set` and `reset` write: the agent dir's `config.yml`, or `<cwd>/.omp/config.yml`. */
+export type ConfigScope = "global" | "project";
+
 export interface ConfigCommandArgs {
 	action: ConfigAction;
 	key?: string;
 	value?: string;
 	flags: {
 		json?: boolean;
+		/** Layer `set`/`reset` write; defaults to `global`. */
+		scope?: ConfigScope;
+		/** Project directory whose settings are read or written; defaults to the current directory. */
+		cwd?: string;
 	};
 }
 // =============================================================================
@@ -161,7 +170,14 @@ function getTypeDisplay(def: CliSettingDef): string {
 // =============================================================================
 
 export async function runConfigCommand(cmd: ConfigCommandArgs): Promise<void> {
-	await Settings.init();
+	if (cmd.flags.scope !== undefined && cmd.action !== "set" && cmd.action !== "reset") {
+		console.error(chalk.red("--scope applies to `config set` and `config reset` only"));
+		process.exit(1);
+	}
+	const cwd = cmd.flags.cwd === undefined ? undefined : await resolveProjectDir(cmd.flags.cwd);
+	const instance = await Settings.init(cwd === undefined ? {} : { cwd });
+	// An instance created earlier in this process is re-scoped rather than read for the wrong project.
+	if (cwd !== undefined && instance.getCwd() !== path.normalize(cwd)) await instance.reloadForCwd(cwd);
 
 	switch (cmd.action) {
 		case "list":
@@ -183,6 +199,18 @@ export async function runConfigCommand(cmd: ConfigCommandArgs): Promise<void> {
 			await initXdg();
 			break;
 	}
+}
+
+/** `--cwd` resolved against the current directory; exits when it is not a directory. */
+async function resolveProjectDir(dir: string): Promise<string> {
+	const resolved = path.resolve(dir);
+	try {
+		if ((await fs.promises.stat(resolved)).isDirectory()) return resolved;
+	} catch (error) {
+		if (!isEnoent(error) && !isEnotdir(error)) throw error;
+	}
+	console.error(chalk.red(`Not a directory: ${resolved}`));
+	process.exit(1);
 }
 
 async function writeStdout(text: string): Promise<void> {
@@ -209,14 +237,18 @@ async function handleList(flags: { json?: boolean }): Promise<void> {
 		// unset credential as redacted would report every fresh install as having
 		// one configured, which leaks the opposite of what redaction is for. A
 		// configured "" renders as unset, like in the settings panel (credentials
-		// are all strings).
-		const result: Record<string, { value?: unknown; redacted?: true; type: string; description: string }> = {};
+		// are all strings). `source` is the layer supplying the effective value.
+		const result: Record<
+			string,
+			{ value?: unknown; redacted?: true; type: string; description: string; source: SettingProvenance }
+		> = {};
 		for (const def of defs) {
 			const value = def.setting.get(settings);
+			const source = def.setting.provenance(settings);
 			result[def.path] =
 				def.setting.isCredential && value
-					? { redacted: true, type: def.type, description: def.description }
-					: { value, type: def.type, description: def.description };
+					? { redacted: true, type: def.type, description: def.description, source }
+					: { value, type: def.type, description: def.description, source };
 		}
 		await writeStdout(`${JSON.stringify(result, null, 2)}\n`);
 		return;
@@ -279,9 +311,13 @@ function handleGet(key: string | undefined, flags: { json?: boolean }): void {
 	console.log(formatValue(value));
 }
 
-async function handleSet(key: string | undefined, value: string | undefined, flags: { json?: boolean }): Promise<void> {
+async function handleSet(
+	key: string | undefined,
+	value: string | undefined,
+	flags: { json?: boolean; scope?: ConfigScope },
+): Promise<void> {
 	if (!key || value === undefined) {
-		console.error(chalk.red(`Usage: ${APP_NAME} config set <key> <value>`));
+		console.error(chalk.red(`Usage: ${APP_NAME} config set <key> <value> [--scope global|project] [--cwd <path>]`));
 		console.error(chalk.dim(`\nRun '${APP_NAME} config list' to see available keys`));
 		process.exit(1);
 	}
@@ -293,36 +329,55 @@ async function handleSet(key: string | undefined, value: string | undefined, fla
 		process.exit(1);
 	}
 
+	const scope = flags.scope ?? "global";
 	try {
-		def.setting.set(settings, def.setting.parse(value));
+		const parsed = def.setting.parse(value);
+		if (scope === "project") def.setting.setProject(settings, parsed);
+		else def.setting.set(settings, parsed);
 		await settings.flush();
 	} catch (err) {
 		console.error(chalk.red(String(err)));
 		process.exit(1);
 	}
+	if (scope === "project" && def.setting.isCredential) {
+		console.error(
+			chalk.yellow(
+				`${theme.status.warning} ${def.path} is a credential and ${projectConfigPath()} is often committed; prefer the global config or an environment variable.`,
+			),
+		);
+	}
 
-	// Report the value written to config.yml. When another layer or an environment variable still
-	// supplies the effective value, say which instead of echoing its value as if it had been set.
-	const saved = globalValue(def.setting);
-	const shadow = shadowingSource(def.setting);
+	// Report the value written to the scope's config file. When a higher layer or an environment variable
+	// still supplies the effective value, say which instead of echoing its value as if it had been set.
+	const saved = layerValue(def.setting, scope);
+	const shadow = shadowingSource(def.setting, scope);
 
 	if (flags.json) {
-		console.log(JSON.stringify({ key: def.path, value: saved, ...shadow?.json }));
+		console.log(JSON.stringify({ key: def.path, scope, value: saved, ...shadow?.json }));
 		return;
 	}
-	console.log(chalk.green(`${theme.status.success} Set ${def.path} = ${formatValue(saved)}`));
+	const where = scope === "project" ? ` in ${projectConfigPath()}` : "";
+	console.log(chalk.green(`${theme.status.success} Set ${def.path} = ${formatValue(saved)}${where}`));
 	if (shadow) console.log(chalk.yellow(`${theme.status.warning} ${shadow.message}`));
 }
 
-/** Value `setting` holds in the global config layer — what `config set` wrote. */
-function globalValue(setting: AnySetting): unknown {
-	let value: unknown = settings.getGlobalSettings();
+/** The project config file `--scope project` writes. */
+function projectConfigPath(): string {
+	return path.join(getProjectAgentDir(settings.getCwd()), "config.yml");
+}
+
+/** Value `setting` holds in the `scope` layer — what `config set` wrote. */
+function layerValue(setting: AnySetting, scope: ConfigScope): unknown {
+	let value: unknown = scope === "project" ? settings.getProjectSettings() : settings.getGlobalSettings();
 	for (const segment of setting.segments) value = isRecord(value) ? value[segment] : undefined;
 	return value;
 }
 
-/** Where the effective value comes from when it is not the global config (or the default), if anywhere. */
-function shadowingSource(setting: AnySetting): { json: Record<string, string>; message: string } | undefined {
+/** Where the effective value comes from when a layer above `scope` (or the environment) supplies it, if anywhere. */
+function shadowingSource(
+	setting: AnySetting,
+	scope: ConfigScope,
+): { json: Record<string, string>; message: string } | undefined {
 	const provenance = setting.provenance(settings);
 	switch (provenance) {
 		case "global":
@@ -342,6 +397,7 @@ function shadowingSource(setting: AnySetting): { json: Record<string, string>; m
 					};
 		}
 		case "project":
+			if (scope === "project") return undefined;
 			return {
 				json: { overriddenBy: provenance },
 				message: "Project settings override this value here; edit or remove it there for the saved value to apply.",
@@ -359,9 +415,9 @@ function shadowingSource(setting: AnySetting): { json: Record<string, string>; m
 	}
 }
 
-async function handleReset(key: string | undefined, flags: { json?: boolean }): Promise<void> {
+async function handleReset(key: string | undefined, flags: { json?: boolean; scope?: ConfigScope }): Promise<void> {
 	if (!key) {
-		console.error(chalk.red(`Usage: ${APP_NAME} config reset <key>`));
+		console.error(chalk.red(`Usage: ${APP_NAME} config reset <key> [--scope global|project] [--cwd <path>]`));
 		console.error(chalk.dim(`\nRun '${APP_NAME} config list' to see available keys`));
 		process.exit(1);
 	}
@@ -373,9 +429,11 @@ async function handleReset(key: string | undefined, flags: { json?: boolean }): 
 		process.exit(1);
 	}
 
+	const scope = flags.scope ?? "global";
 	try {
 		// Remove the key rather than writing the default, so later default changes still apply.
-		def.setting.unset(settings);
+		if (scope === "project") def.setting.unsetProject(settings);
+		else def.setting.unset(settings);
 		await settings.flush();
 	} catch (err) {
 		console.error(chalk.red(String(err)));
@@ -386,10 +444,15 @@ async function handleReset(key: string | undefined, flags: { json?: boolean }): 
 	const value = def.setting.get(settings);
 	const redacted = def.setting.isCredential && !!value;
 	if (flags.json) {
-		console.log(JSON.stringify(redacted ? { key: def.path, redacted: true } : { key: def.path, value }));
-	} else {
 		console.log(
-			chalk.green(`${theme.status.success} Reset ${def.path} to ${redacted ? REDACTED : formatValue(value)}`),
+			JSON.stringify(redacted ? { key: def.path, scope, redacted: true } : { key: def.path, scope, value }),
+		);
+	} else {
+		const where = scope === "project" ? ` in ${projectConfigPath()}` : "";
+		console.log(
+			chalk.green(
+				`${theme.status.success} Reset ${def.path}${where}; now ${redacted ? REDACTED : formatValue(value)}`,
+			),
 		);
 	}
 }
