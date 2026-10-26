@@ -1,0 +1,455 @@
+name: Upstream tag adoption
+
+# Considers each new can1357/oh-my-pi release tag for adoption (PRD §4, §10).
+# A fork cannot receive upstream's events, so a schedule polls upstream's tags.
+# The newest stable `vX.Y.Z` tag not yet in `main` is merged into `main` on the
+# runner and the RPC contract suite runs on the result, in a job with no write
+# permission and no secrets because it runs the tag's code. Only when it is
+# green does a separate job, which runs no repository code, push
+# `chore/upstream-<tag>` and open an adoption PR; otherwise an issue records why
+# the tag was skipped. A PR opened with GITHUB_TOKEN starts no `pull_request`
+# workflows, so this workflow dispatches `ci.yml` on the branch, waits for it
+# and posts its result as the required `CI gate` status. See
+# docs/fork-release.md.
+
+on:
+   schedule:
+      # Every six hours.
+      - cron: "23 */6 * * *"
+   workflow_dispatch:
+      inputs:
+         tag:
+            description: "Upstream tag to evaluate (default: the newest stable v* tag not in main)"
+            type: string
+            default: ""
+         dry_run:
+            description: "Merge and run the contract suite; push, open and dispatch nothing"
+            type: boolean
+            default: true
+
+permissions:
+   contents: read
+
+concurrency:
+   group: upstream-adopt
+   cancel-in-progress: false
+
+jobs:
+   # Reads upstream's tags and this repository's PRs and issues; runs no code
+   # from the upstream tag.
+   pick:
+      name: Pick the upstream tag
+      if: github.repository != 'can1357/oh-my-pi'
+      runs-on: ubuntu-22.04
+      timeout-minutes: 10
+      permissions:
+         contents: read
+         pull-requests: read
+         issues: read
+      env:
+         UPSTREAM_REPO: can1357/oh-my-pi
+         TAG_INPUT: ${{ inputs.tag }}
+         # Scheduled runs have no inputs, so they are never dry runs.
+         DRY_RUN: ${{ inputs.dry_run == true }}
+         GH_TOKEN: ${{ github.token }}
+         LABEL: upstream-merge
+      outputs:
+         candidate: ${{ steps.pick.outputs.candidate }}
+         tag: ${{ steps.pick.outputs.tag }}
+         sha: ${{ steps.pick.outputs.sha }}
+         branch: ${{ steps.pick.outputs.branch }}
+         main-sha: ${{ steps.pick.outputs.main-sha }}
+      steps:
+         - uses: actions/checkout@v4
+           with:
+              ref: main
+              fetch-depth: 0
+              persist-credentials: false
+
+         - name: Pick the upstream tag
+           id: pick
+           shell: bash
+           run: |
+              set -euo pipefail
+              summary() { printf '%s\n' "$@" | tee -a "$GITHUB_STEP_SUMMARY"; }
+              stable='^v[0-9]+\.[0-9]+\.[0-9]+$'
+              # Read-only upstream: the push URL is unusable.
+              git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
+              git remote set-url --push upstream DISABLED
+
+              if [[ -n "$TAG_INPUT" ]]; then
+                if [[ ! "$TAG_INPUT" =~ $stable ]]; then
+                  echo "::error::tag must look like v1.2.3: $TAG_INPUT"
+                  exit 1
+                fi
+                tag="$TAG_INPUT"
+              else
+                tag="$(git ls-remote --tags --refs upstream 'v*' | sed 's|.*refs/tags/||' |
+                  grep -E "$stable" | sort -V | tail -n 1 || true)"
+                if [[ -z "$tag" ]]; then
+                  summary "No stable upstream tag found."
+                  exit 0
+                fi
+              fi
+              git fetch --no-tags upstream "+refs/tags/$tag:refs/upstream-tags/$tag"
+              sha="$(git rev-parse "refs/upstream-tags/$tag^{commit}")"
+              branch="chore/upstream-$tag"
+              {
+                echo "tag=$tag"
+                echo "sha=$sha"
+                echo "branch=$branch"
+                echo "main-sha=$(git rev-parse HEAD)"
+              } >> "$GITHUB_OUTPUT"
+              if git merge-base --is-ancestor "$sha" HEAD; then
+                # A dry run that names an adopted tag still runs every step (the
+                # merge is a no-op), which exercises the pipeline end to end.
+                if [[ "$DRY_RUN" != true || -z "$TAG_INPUT" ]]; then
+                  summary "\`main\` already contains upstream \`$tag\`. Nothing to adopt."
+                  exit 0
+                fi
+                summary "\`main\` already contains upstream \`$tag\`; evaluating it anyway (dry run naming the tag)."
+              fi
+              # Each tag is considered once: a PR or skip issue in any state
+              # means it was already decided. A dispatch naming the tag
+              # re-evaluates it.
+              if [[ -z "$TAG_INPUT" ]]; then
+                seen="$( {
+                  gh pr list --state all --head "$branch" --limit 10 --json url
+                  gh issue list --state all --label "$LABEL" --limit 200 --json url,title |
+                    jq --arg p "Upstream $tag " '[.[] | select(.title | startswith($p))]'
+                } | jq -rs 'add | .[].url')"
+                if [[ -n "$seen" ]]; then
+                  summary "Upstream \`$tag\` was already considered: $seen"
+                  exit 0
+                fi
+              fi
+              echo "candidate=true" >> "$GITHUB_OUTPUT"
+
+   # Runs code from the upstream tag (dependency install scripts, the native
+   # addon installer, the contract tests), so it gets read-only contents, no
+   # secret, no persisted credentials and no cache (one would be written from
+   # this run's ref, `main` on a schedule). Its only output is whether it
+   # passed; `report` redoes the merge itself.
+   evaluate:
+      name: RPC contract suite on the merge
+      needs: pick
+      if: needs.pick.outputs.candidate == 'true'
+      runs-on: ubuntu-22.04
+      timeout-minutes: 30
+      permissions:
+         contents: read
+      env:
+         UPSTREAM_REPO: can1357/oh-my-pi
+         TAG: ${{ needs.pick.outputs.tag }}
+         SHA: ${{ needs.pick.outputs.sha }}
+         MAIN_SHA: ${{ needs.pick.outputs.main-sha }}
+      steps:
+         - uses: actions/checkout@v4
+           with:
+              ref: ${{ needs.pick.outputs.main-sha }}
+              fetch-depth: 0
+              persist-credentials: false
+
+         - name: Merge the tag into main
+           id: merge
+           shell: bash
+           run: |
+              set -euo pipefail
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git fetch --no-tags "https://github.com/$UPSTREAM_REPO.git" "refs/tags/$TAG"
+              if [[ "$(git rev-parse "FETCH_HEAD^{commit}")" != "$SHA" ]]; then
+                echo "::error::upstream $TAG no longer points at $SHA"
+                exit 1
+              fi
+              # The contract's append-only check compares against origin/main;
+              # pin it to the main commit `pick` saw.
+              git update-ref refs/remotes/origin/main "$MAIN_SHA"
+              if git merge --no-ff --no-edit -m "Merge upstream $UPSTREAM_REPO $TAG into main" "$SHA"; then
+                echo "clean=true" >> "$GITHUB_OUTPUT"
+              else
+                git merge --abort
+                echo "Merge conflicts; the report job opens the issue."
+              fi
+
+         # The contract suite as ci.yml's `RPC contract` job runs it, against
+         # the linux-x64 addons upstream published to npm for this tag (the
+         # fork does not change native code). The full suite, with addons built
+         # from source, runs on the adoption PR. Bun is installed by the pin
+         # rule of .github/actions/bun-install, without that action (it is
+         # code from the merged tree) and without its shared cache.
+         - name: Install bun
+           if: steps.merge.outputs.clean == 'true'
+           shell: bash
+           run: |
+              set -euo pipefail
+              want="$(sed -n 's/.*"packageManager": *"bun@\([^"]*\)".*/\1/p' package.json)"
+              case "$want" in
+                '') echo "::error::could not read the bun pin from package.json"; exit 1 ;;
+                '>='*) release="" ;;
+                *) release="bun-v$want" ;;
+              esac
+              curl -fsSL https://bun.sh/install | bash -s -- ${release:+"$release"}
+              echo "$HOME/.bun/bin" >> "$GITHUB_PATH"
+
+         - name: Install dependencies
+           if: steps.merge.outputs.clean == 'true'
+           shell: bash
+           run: bun install --frozen-lockfile
+
+         - name: Install the tag's native addons (npm)
+           if: steps.merge.outputs.clean == 'true'
+           shell: bash
+           run: |
+              set -euo pipefail
+              src="$RUNNER_TEMP/natives"
+              tarball="$(npm view "@oh-my-pi/pi-natives-linux-x64@${TAG#v}" dist.tarball)"
+              echo "Fetching $tarball"
+              curl -fsSL --retry 3 "$tarball" | tar -xz -C "$RUNNER_TEMP"
+              for t in linux-x64-baseline linux-x64-modern; do
+                mkdir -p "$src/natives-$t"
+                cp "$RUNNER_TEMP/package/pi_natives.$t.node" "$src/natives-$t/"
+              done
+              bun scripts/bazel-natives.ts linux-x64-baseline linux-x64-modern --source "$src"
+
+         - name: RPC contract tests
+           if: steps.merge.outputs.clean == 'true'
+           shell: bash
+           run: OMP_RPC_CONTRACT_BASE_REF=origin/main bun run ci:test:rpc-contract
+
+   # Trusted: runs only this file's script and git, never code from the
+   # upstream tag, and takes nothing from `evaluate` but its result. It redoes
+   # the merge (same commits, same tree), then pushes, opens the PR or issue,
+   # and reports CI.
+   report:
+      name: Open the adoption PR or a skip issue
+      needs: [pick, evaluate]
+      if: ${{ !cancelled() && needs.pick.outputs.candidate == 'true' }}
+      runs-on: ubuntu-22.04
+      # Includes waiting for the dispatched ci.yml run, which builds the
+      # native addons from source without a cache (well over an hour).
+      timeout-minutes: 330
+      permissions:
+         contents: write # push the adoption branch
+         pull-requests: write # open the adoption PR, close superseded ones
+         issues: write # skip issues, the label
+         actions: write # dispatch ci.yml on the adoption branch
+         statuses: write # report the dispatched CI result as `CI gate`
+      env:
+         UPSTREAM_REPO: can1357/oh-my-pi
+         # Scheduled runs have no inputs, so they are never dry runs.
+         DRY_RUN: ${{ inputs.dry_run == true }}
+         # Optional token (contents, pull requests, issues, actions and
+         # workflows write). Without it the run uses GITHUB_TOKEN, which cannot
+         # push an upstream change to .github/workflows and whose PRs start no CI.
+         USE_PAT: ${{ secrets.UPSTREAM_MERGE_TOKEN != '' }}
+         GH_TOKEN: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
+         LABEL: upstream-merge
+         CI_CONTEXT: CI gate
+         TAG: ${{ needs.pick.outputs.tag }}
+         SHA: ${{ needs.pick.outputs.sha }}
+         BRANCH: ${{ needs.pick.outputs.branch }}
+         MAIN_SHA: ${{ needs.pick.outputs.main-sha }}
+         CONTRACT: ${{ needs.evaluate.result }}
+      steps:
+         - uses: actions/checkout@v4
+           with:
+              ref: ${{ needs.pick.outputs.main-sha }}
+              fetch-depth: 0
+              token: ${{ secrets.UPSTREAM_MERGE_TOKEN || github.token }}
+
+         - name: Merge the tag into main
+           id: merge
+           shell: bash
+           run: |
+              set -euo pipefail
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git fetch --no-tags "https://github.com/$UPSTREAM_REPO.git" "refs/tags/$TAG"
+              if [[ "$(git rev-parse "FETCH_HEAD^{commit}")" != "$SHA" ]]; then
+                echo "::error::upstream $TAG no longer points at $SHA"
+                exit 1
+              fi
+              git switch -c "$BRANCH"
+              if git merge --no-ff --no-edit -m "Merge upstream $UPSTREAM_REPO $TAG into main" "$SHA"; then
+                echo "clean=true" >> "$GITHUB_OUTPUT"
+              else
+                git diff --name-only --diff-filter=U > "$RUNNER_TEMP/conflicts.txt"
+                git merge --abort
+                echo "clean=false" >> "$GITHUB_OUTPUT"
+              fi
+
+         - name: Open the adoption PR or a skip issue
+           id: open
+           shell: bash
+           env:
+              CLEAN: ${{ steps.merge.outputs.clean }}
+           run: |
+              set -euo pipefail
+              summary() { printf '%s\n' "$@" | tee -a "$GITHUB_STEP_SUMMARY"; }
+              run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              main_sha="$MAIN_SHA"
+              count="$(git rev-list --count "$main_sha..$SHA")"
+              release="https://github.com/$UPSTREAM_REPO/releases/tag/$TAG"
+              pr_title="chore: adopt upstream $TAG"
+
+              if [[ "$DRY_RUN" != true ]]; then
+                gh label create "$LABEL" --color 0e8a16 \
+                  --description "Automated upstream merge (docs/fork-release.md)" --force
+              fi
+
+              # Skip: a conflict, or a contract suite that failed or could not
+              # run (the evaluate job failed).
+              if [[ "$CLEAN" != true || "$CONTRACT" != success ]]; then
+                body="$RUNNER_TEMP/issue.md"
+                if [[ "$CLEAN" != true ]]; then
+                  title="Upstream $TAG not adopted: merge conflicts"
+                  {
+                    echo "Merging upstream [\`$TAG\`]($release) ($count commits) into \`main\` (\`${main_sha:0:12}\`) stopped on conflicts in:"
+                    echo
+                    while IFS= read -r f; do echo "- \`$f\`"; done < "$RUNNER_TEMP/conflicts.txt"
+                    echo
+                    echo "The RPC contract suite did not run. To adopt the tag by hand (docs/fork-release.md, \"Upstream adoption\"):"
+                    echo
+                    echo '```bash'
+                    echo "git fetch origin main && git fetch --no-tags https://github.com/$UPSTREAM_REPO.git refs/tags/$TAG"
+                    echo "git switch -c $BRANCH origin/main"
+                    echo "git merge --no-ff $SHA   # $TAG; resolve, then git commit and run bun run ci:test:rpc-contract"
+                    echo "git push origin $BRANCH && gh pr create --base main --label $LABEL --title \"$pr_title\""
+                    echo '```'
+                  } > "$body"
+                else
+                  title="Upstream $TAG not adopted: RPC contract suite failed"
+                  {
+                    echo "Upstream [\`$TAG\`]($release) ($count commits) merges cleanly into \`main\` (\`${main_sha:0:12}\`), but the RPC contract suite failed or could not run on the result (job \`evaluate\`: \`$CONTRACT\`; see the run). Per PRD §4 the tag is skipped; a later tag is considered when it appears."
+                    echo
+                    echo "To retry this tag after fixing the cause: \`gh workflow run upstream-adopt.yml -f tag=$TAG -f dry_run=false\`."
+                  } > "$body"
+                fi
+                printf '\nRun: %s\n' "$run_url" >> "$body"
+                echo "::warning title=Upstream $TAG not adopted::$title"
+                if [[ "$DRY_RUN" == true ]]; then
+                  summary "Dry run: would open issue **$title**:" "" "$(cat "$body")"
+                  exit 0
+                fi
+                url="$(gh issue create --title "$title" --label "$LABEL" --body-file "$body")"
+                summary "Skipped $TAG; opened $url" "" "$(cat "$body")"
+                exit 0
+              fi
+
+              body="$RUNNER_TEMP/pr.md"
+              {
+                echo "Adopts upstream [\`$TAG\`]($release): $count upstream commits merged into \`main\`. The RPC contract suite passed on the merge result before this PR was opened ($run_url)."
+                echo
+                if [[ "$USE_PAT" == true ]]; then
+                  echo "CI runs on this pull request as usual."
+                else
+                  echo "This PR was opened with \`GITHUB_TOKEN\`, which starts no \`pull_request\` workflows. The adoption workflow dispatched \`ci.yml\` on \`$BRANCH\` instead ([runs](https://github.com/$GITHUB_REPOSITORY/actions/workflows/ci.yml?query=branch%3A$BRANCH)), waits for it, and posts its result as the required \`CI gate\` status ($run_url). A push to this branch by a person runs CI normally."
+                fi
+              } > "$body"
+
+              if [[ "$DRY_RUN" == true ]]; then
+                summary "Dry run: contract suite green. Would push \`$BRANCH\`, dispatch \`ci.yml\` on it, open PR **$pr_title** (or issue **Upstream $TAG ready for a PR** if Actions may not open PRs) and close older open \`$LABEL\` PRs and issues." "" "$(cat "$body")"
+                exit 0
+              fi
+
+              if ! git push origin "$BRANCH" 2> "$RUNNER_TEMP/push.err"; then
+                cat "$RUNNER_TEMP/push.err"
+                {
+                  echo "Upstream [\`$TAG\`]($release) merges cleanly and passed the RPC contract suite, but pushing \`$BRANCH\` failed:"
+                  echo
+                  echo '```'
+                  cat "$RUNNER_TEMP/push.err"
+                  echo '```'
+                  echo
+                  echo "GITHUB_TOKEN cannot push commits that change \`.github/workflows\`. Push the merge by hand (docs/fork-release.md, \"Upstream adoption\") or add the \`UPSTREAM_MERGE_TOKEN\` secret."
+                  echo
+                  echo "Run: $run_url"
+                } > "$RUNNER_TEMP/push-issue.md"
+                gh issue create --title "Upstream $TAG not adopted: push failed" \
+                  --label "$LABEL" --body-file "$RUNNER_TEMP/push-issue.md"
+                exit 1
+              fi
+
+              if [[ "$USE_PAT" != true ]]; then
+                gh workflow run ci.yml --ref "$BRANCH"
+                # The dispatched run's checks do not count for the PR, so the
+                # next step mirrors its result as a `CI gate` commit status.
+                gh api "repos/$GITHUB_REPOSITORY/statuses/$(git rev-parse HEAD)" -f state=pending \
+                  -f context="$CI_CONTEXT" -f description="ci.yml dispatched by the upstream adoption" >/dev/null
+                echo "ci_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+              fi
+              if ! url="$(gh pr create --base main --head "$BRANCH" --title "$pr_title" \
+                --label "$LABEL" --body-file "$body")"; then
+                # GITHUB_TOKEN may not open PRs while "Allow GitHub Actions to
+                # create and approve pull requests" is off. A person opens it
+                # from the issue.
+                open_pr="https://github.com/$GITHUB_REPOSITORY/compare/main...$BRANCH?expand=1&labels=$LABEL&title=$(jq -rn --arg t "$pr_title" '$t | @uri')"
+                {
+                  echo "\`$BRANCH\` holds a clean merge of upstream [\`$TAG\`]($release) that passed the RPC contract suite, but this workflow could not open the pull request (docs/fork-release.md, \"Upstream adoption\")."
+                  echo
+                  echo "**[Open the pull request]($open_pr)** and paste the description below. CI was dispatched on the branch already."
+                  echo
+                  echo "---"
+                  echo
+                  cat "$body"
+                } > "$RUNNER_TEMP/ready-issue.md"
+                url="$(gh issue create --title "Upstream $TAG ready for a PR" --label "$LABEL" \
+                  --body-file "$RUNNER_TEMP/ready-issue.md")"
+              fi
+              # This tag contains every older one, so older open adoption PRs
+              # and skip issues are closed.
+              {
+                gh pr list --state open --label "$LABEL" --limit 100 --json url
+                gh issue list --state open --label "$LABEL" --limit 100 --json url
+              } | jq -rs --arg u "$url" 'add | .[] | select(.url != $u) | .url' |
+                while IFS= read -r old; do
+                  if [[ "$old" == */pull/* ]]; then
+                    gh pr close "$old" --comment "Superseded by $url, which adopts a newer upstream tag. The branch is kept."
+                  else
+                    gh issue close "$old" --comment "Superseded by $url, which adopts a newer upstream tag."
+                  fi
+                done
+              summary "Opened $url from \`$BRANCH\`." "" "$(cat "$body")"
+
+         # Branch protection ignores the check runs of a workflow_dispatch run,
+         # so a PR opened with GITHUB_TOKEN would never get its required
+         # `CI gate`. This step waits for the dispatched ci.yml run and posts
+         # its result as a `CI gate` commit status from GITHUB_TOKEN (the GitHub
+         # Actions app, the source the required check expects).
+         - name: Report the dispatched CI result as CI gate
+           # always(): once CI is dispatched and `pending` posted, a later
+           # failure in the step above must not leave the status pending.
+           if: always() && steps.open.outputs.ci_sha != ''
+           shell: bash
+           env:
+              GH_TOKEN: ${{ github.token }}
+              CI_BRANCH: ${{ needs.pick.outputs.branch }}
+              CI_SHA: ${{ steps.open.outputs.ci_sha }}
+           run: |
+              set -euo pipefail
+              id=""
+              for _ in $(seq 30); do
+                id="$(gh run list --workflow ci.yml --branch "$CI_BRANCH" --commit "$CI_SHA" \
+                  --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+                [[ -n "$id" ]] && break
+                sleep 10
+              done
+              status() {
+                gh api "repos/$GITHUB_REPOSITORY/statuses/$CI_SHA" -f state="$1" -f context="$CI_CONTEXT" \
+                  -f description="$2" ${3:+-f target_url="$3"} >/dev/null
+              }
+              if [[ -z "$id" ]]; then
+                status error "The dispatched ci.yml run was not found"
+                exit 1
+              fi
+              ci_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$id"
+              status pending "ci.yml dispatched by the upstream adoption" "$ci_url"
+              gh run watch "$id" --interval 60 >/dev/null || true
+              conclusion="$(gh run view "$id" --json conclusion --jq .conclusion)"
+              if [[ "$conclusion" == success ]]; then
+                status success "ci.yml passed" "$ci_url"
+              else
+                status failure "ci.yml: ${conclusion:-unknown}" "$ci_url"
+              fi
+              echo "ci.yml run $ci_url: $conclusion" | tee -a "$GITHUB_STEP_SUMMARY"
