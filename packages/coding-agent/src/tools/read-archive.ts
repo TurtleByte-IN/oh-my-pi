@@ -67,6 +67,16 @@ const archiveReaderCache = new LRUCache<string, CachedArchiveReader>({
 	sizeCalculation: cached => Math.max(1, cached.entryCount),
 });
 
+/**
+ * How long after its last change a file's stat identity stays untrusted. File
+ * timestamps advance in coarse ticks (the Linux kernel stamps from its jiffy
+ * clock, several milliseconds apart; some filesystems keep whole seconds), so a
+ * rewrite landing in the same tick as the read leaves inode, size and ctime
+ * unchanged. Like Git's racy-clean check, an archive changed this recently is
+ * read but not cached.
+ */
+const RACY_CHANGE_WINDOW_MS = 2_000;
+
 async function openArchiveCached(absolutePath: string): Promise<ArchiveReader> {
 	// A vanished or unreadable archive is reported by the opener, as it always has been.
 	const stat = await Bun.file(absolutePath)
@@ -84,7 +94,8 @@ async function openArchiveCached(absolutePath: string): Promise<ArchiveReader> {
 		return cached.reader;
 	}
 	const reader = await openArchive(absolutePath);
-	if (!CACHEABLE_ARCHIVE_FORMATS[reader.format]) {
+	// Measured after the read: a later write can only reuse this ctime while it is still in its tick.
+	if (!CACHEABLE_ARCHIVE_FORMATS[reader.format] || Date.now() - stat.ctimeMs < RACY_CHANGE_WINDOW_MS) {
 		archiveReaderCache.delete(absolutePath);
 		return reader;
 	}
