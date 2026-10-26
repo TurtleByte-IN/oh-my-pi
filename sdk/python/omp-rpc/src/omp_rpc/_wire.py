@@ -3412,6 +3412,14 @@ class WireClient:
         params["message"] = message
         self._command("steer_subagent", params)
 
+    def revive_subagent(self, subagent_id: str, *, message: str | None = None) -> bool:
+        """Bring a finished, parked or killed subagent back from its transcript, optionally sending it a message; false when it was already live."""
+        params: dict[str, object] = {}
+        params["subagentId"] = subagent_id
+        if message is not None:
+            params["message"] = message
+        return required(expect_object(self._command("revive_subagent", params), "revive_subagent"), "revived", decode_bool, "revive_subagent")
+
     def live_start(self, *, voice: str | None = None, instructions: str | None = None) -> str:
         """Start a live voice session bound to this session; returns the voice in use."""
         params: dict[str, object] = {}

@@ -364,6 +364,17 @@
 				"clientOmit": []
 			},
 			{
+				"name": "revive_subagent",
+				"doc": "Bring a finished, parked or killed subagent back from its transcript, optionally sending it a message; false when it was already live.",
+				"params": "ReviveSubagentParams",
+				"result": "ReviveSubagentResult",
+				"nullable": false,
+				"unwrap": "revived",
+				"timeoutMs": null,
+				"completion": null,
+				"clientOmit": []
+			},
+			{
 				"name": "live_start",
 				"doc": "Start a live voice session bound to this session; returns the voice in use.",
 				"params": "LiveStartParams",
@@ -6538,6 +6549,31 @@
 			"required": [
 				"subagentId",
 				"message"
+			]
+		},
+		"ReviveSubagentParams": {
+			"type": "object",
+			"properties": {
+				"subagentId": {
+					"type": "string"
+				},
+				"message": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"subagentId"
+			]
+		},
+		"ReviveSubagentResult": {
+			"type": "object",
+			"properties": {
+				"revived": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"revived"
 			]
 		},
 		"LiveStartParams": {

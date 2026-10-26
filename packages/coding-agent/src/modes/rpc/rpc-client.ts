@@ -960,6 +960,18 @@ export class RpcClient {
 	}
 
 	/**
+	 * Bring a subagent this session reported back to a live session, the same
+	 * way Agent Hub revive does: a parked or killed subagent is rebuilt from its
+	 * transcript. With `message`, it is then sent to the subagent as its user and
+	 * the call resolves once accepted. Resolves `false` when the subagent was
+	 * already live; rejects when it is unknown or cannot be revived.
+	 */
+	async reviveSubagent(subagentId: string, message?: string): Promise<boolean> {
+		const response = await this.#send({ type: "revive_subagent", subagentId, message });
+		return this.#getData<{ revived: boolean }>(response).revived;
+	}
+
+	/**
 	 * Set model by provider and ID.
 	 */
 	async setModel(provider: string, modelId: string): Promise<{ provider: string; id: string }> {

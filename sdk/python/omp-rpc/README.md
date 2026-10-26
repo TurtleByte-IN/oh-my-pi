@@ -292,6 +292,7 @@ for snapshot in client.get_subagents():
 
 client.steer_subagent("OmpWorker", "Drop the glob, keep the direct path.")
 cancelled = client.cancel_subagent("OmpWorker")  # False when not running
+revived = client.revive_subagent("OmpWorker", message="Also cover the Windows path.")  # False when already live
 ```
 
 At `"events"`, `on_subagent_event()` delivers each subagent's own session

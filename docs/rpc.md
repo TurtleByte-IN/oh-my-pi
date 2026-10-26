@@ -168,6 +168,7 @@ Important edge behavior from runtime:
 - `{ id?, type: "get_subagent_messages", subagentId?: string, sessionFile?: string, fromByte?: number }`
 - `{ id?, type: "cancel_subagent", subagentId: string }`
 - `{ id?, type: "steer_subagent", subagentId: string, message: string }`
+- `{ id?, type: "revive_subagent", subagentId: string, message?: string }`
 
 ### Model
 
@@ -1190,6 +1191,45 @@ Failure responses:
 - the subagent drops or rejects the message before accepting it (for example
   an abort or a usage-limit preflight denial lands first) →
   `error: "Subagent refused the message: <reason>"`
+
+### Reviving subagents
+
+`revive_subagent` brings a subagent this session reported back to a live
+session, the same way Agent Hub revive does. A finished subagent parked after
+its idle TTL (or restored from disk) is rebuilt from its transcript; a subagent
+killed by `cancel_subagent` or Agent Hub is reopened as a fresh generation on
+the same transcript. A subagent that is still live is left as is. Contract
+`1.4.0`; older servers answer `Unknown command: revive_subagent`.
+
+With `message`, the message is then sent to the subagent as its user, exactly
+as `steer_subagent` does, and the response arrives once it is accepted. The
+revived subagent's turns emit `subagent_lifecycle` and `subagent_progress`
+frames (at the current `set_subagent_subscription` level) like any other run,
+so it is listed by `get_subagents` while it works and its transcript keeps
+growing in the same `sessionFile` for `get_subagent_messages`.
+
+```json
+{ "id": "req_1", "type": "revive_subagent", "subagentId": "OmpWorker", "message": "Also cover the Windows path." }
+{ "id": "req_1", "type": "response", "command": "revive_subagent", "success": true, "data": { "revived": true } }
+```
+
+`revived` is `false` when the subagent was already live, so nothing had to be
+rebuilt. Like `steer_subagent`, the command starts in queue order and finishes
+in the background.
+
+Failure responses:
+
+- missing/empty `subagentId`, or a blank `message` → validation error
+- `subagentId` this session never reported, reported before the last
+  `new_session`/`switch_session`, or now owned by another session's same-name
+  agent → `error: "Unknown subagent: <id>"`
+- the transcript cannot be revived (no persisted session contract, an isolated
+  worktree run, its workspace is gone, or no reviver is installed) → the
+  reason, for example `Agent "<id>" was killed and its transcript cannot be resumed …`
+- the revived subagent refuses `message` → `error: "Subagent refused the message: <reason>"`
+
+Only the most recent 256 finished subagents are remembered for `revive_subagent`
+and `get_subagent_messages`.
 
 ### Side questions (`/btw`)
 

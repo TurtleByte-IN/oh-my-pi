@@ -1689,6 +1689,15 @@ export interface SteerSubagentParams {
 	message: string;
 }
 
+export interface ReviveSubagentParams {
+	subagentId: string;
+	message?: string;
+}
+
+export interface ReviveSubagentResult {
+	revived: boolean;
+}
+
 export interface LiveStartParams {
 	voice?: string;
 	instructions?: string;
@@ -1906,6 +1915,7 @@ export interface RpcWireCommands {
 	get_subagent_messages: { params: GetSubagentMessagesParams; result: SubagentMessages };
 	cancel_subagent: { params: CancelSubagentParams; result: CancelSubagentResult };
 	steer_subagent: { params: SteerSubagentParams; result: undefined };
+	revive_subagent: { params: ReviveSubagentParams; result: ReviveSubagentResult };
 	live_start: { params: LiveStartParams; result: LiveStartResult };
 	live_stop: { params: undefined; result: undefined };
 	live_mute: { params: LiveMuteParams; result: LiveMuteResult };
