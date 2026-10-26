@@ -5383,6 +5383,19 @@ pub struct SteerSubagentParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReviveSubagentParams {
+	#[serde(rename = "subagentId")]
+	pub subagent_id: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReviveSubagentResult {
+	pub revived: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LiveStartParams {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub voice: Option<String>,
@@ -6594,6 +6607,25 @@ impl Command for SteerSubagentCommand {
 	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
 		let _ = data;
 		Ok(())
+	}
+}
+
+/// Bring a finished, parked or killed subagent back from its transcript, optionally sending it a message; false when it was already live.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReviveSubagentCommand {
+	#[serde(rename = "subagentId")]
+	pub subagent_id: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub message: Option<String>,
+}
+
+impl Command for ReviveSubagentCommand {
+	const NAME: &'static str = "revive_subagent";
+	const TIMEOUT_MS: Option<u64> = None;
+	type Output = bool;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<ReviveSubagentResult>(data.unwrap_or_else(|| Value::Object(Map::new()))).map(|result| result.revived)
 	}
 }
 

@@ -41,6 +41,7 @@ import {
 } from "../../extensibility/skills";
 import { type Theme, theme } from "@oh-my-pi/pi-tui/theme";
 import { AgentLifecycleManager } from "../../registry/agent-lifecycle";
+import { AgentRegistry } from "../../registry/agent-registry";
 import {
 	type WordCompletionEngine,
 	type WordCompletionMethod,
@@ -441,7 +442,8 @@ const BACKGROUND_COMMANDS: ReadonlySet<string> = new Set<RpcCommand["type"]>([
  * real wall-clock time (image normalization, a vision-model description call).
  * `steer_subagent` likewise holds its response until the subagent accepts the
  * message, which for a subagent between turns includes its whole
- * pre-`agent_start` setup. Backgrounding them lets a client send `abort_bash`
+ * pre-`agent_start` setup; `revive_subagent` rebuilds a whole subagent session
+ * from its transcript first. Backgrounding them lets a client send `abort_bash`
  * while a shell command runs, or `abort` (and `steer`/`follow_up`/`get_state`)
  * while a `prompt` or `steer_subagent` is still admitting. `predict_word` is
  * backgrounded too, so a cold prediction engine never stalls the command queue
@@ -452,7 +454,8 @@ const BACKGROUND_COMMANDS: ReadonlySet<string> = new Set<RpcCommand["type"]>([
  *
  * @returns `undefined` when the frame was routed to a side-channel handler
  *   (extension UI response, host tool/URI frames) or dispatched in the
- *   background (`bash`, `predict_word`, `live_start`, `prompt`, `steer`, `follow_up`, `steer_subagent`). Otherwise a promise that
+ *   background (`bash`, `predict_word`, `live_start`, `prompt`, `steer`, `follow_up`, `steer_subagent`,
+ *   `revive_subagent`). Otherwise a promise that
  *   resolves once the response for the command has been emitted via `output`.
  *   Errors from `handleCommand` on a command dispatched inline propagate; the
  *   caller is expected to wrap them.
@@ -480,7 +483,8 @@ export function dispatchRpcInputFrame(parsed: unknown, deps: RpcInputFrameDeps):
 		command.type === "prompt" ||
 		command.type === "steer" ||
 		command.type === "follow_up" ||
-		command.type === "steer_subagent"
+		command.type === "steer_subagent" ||
+		command.type === "revive_subagent"
 	) {
 		const task = (async () => {
 			try {
@@ -843,7 +847,21 @@ export async function handleRpcSteerSubagent(
 	// or the subagent may have finished in the meantime.
 	const current = resolveOwnedLiveSubagent(subagentRegistry, subagentId);
 	if (current?.ref !== owned.ref || current.session !== session) return notRunning;
+	return deliverSubagentMessage(session, subagentId, message);
+}
 
+/**
+ * Send `message` to a live subagent session as its user (`prompt` with the
+ * `steer` streaming behavior) and resolve once it is accepted: queued into a
+ * running turn, or the subagent's new turn started (`agent_start`). Returns the
+ * refusal as an error message, or `undefined` once accepted; the rest of the
+ * turn is not awaited and later failures are logged.
+ */
+async function deliverSubagentMessage(
+	session: AgentSession,
+	subagentId: string,
+	message: string,
+): Promise<string | undefined> {
 	const accepted = Promise.withResolvers<void>();
 	const unsubscribe = session.subscribe(event => {
 		if (event.type === "agent_start") accepted.resolve();
@@ -852,7 +870,7 @@ export async function handleRpcSteerSubagent(
 		() => accepted.resolve(),
 		err => {
 			accepted.reject(err);
-			logger.warn("steer_subagent message failed", { subagentId, error: String(err) });
+			logger.warn("subagent message failed", { subagentId, error: String(err) });
 		},
 	);
 	try {
@@ -863,6 +881,50 @@ export async function handleRpcSteerSubagent(
 	} finally {
 		unsubscribe();
 	}
+}
+
+/**
+ * Handle RPC `revive_subagent`: bring a subagent this session reported back to
+ * a live session, the same way Agent Hub revive does
+ * (`AgentLifecycleManager.ensureLive`). A parked subagent (finished and idle
+ * past its TTL, or restored from disk) is rebuilt from its transcript through
+ * the persisted-subagent reviver; a killed one (`cancel_subagent`, Agent Hub
+ * kill) is reopened as a fresh generation on the same transcript. A subagent
+ * that is still live is left as is.
+ *
+ * With `message`, the message is then sent to the subagent as its user, as
+ * {@link handleRpcSteerSubagent} does, and the call resolves once it is
+ * accepted. The revived subagent's turns emit `subagent_lifecycle`/`progress`
+ * frames like any wake, so it reappears in `get_subagents` while it runs.
+ *
+ * Only ids this session reported (its current roster, or a retained finished
+ * subagent) are reachable, and the registry ref must still carry the transcript
+ * this session recorded, so another session's same-name agent is never touched.
+ * Returns whether a new live session was built (`false`: it was already live).
+ * Throws with the reason when the subagent is unknown or cannot be revived.
+ */
+export async function handleRpcReviveSubagent(
+	subagentRegistry: Pick<RpcSubagentRegistry, "reportedSessionFile">,
+	subagentId: string,
+	message?: string,
+): Promise<boolean> {
+	const sessionFile = subagentRegistry.reportedSessionFile(subagentId);
+	const ref = AgentRegistry.global().get(subagentId);
+	if (!sessionFile || ref?.kind !== "sub" || ref.sessionFile !== sessionFile) {
+		throw new Error(`Unknown subagent: ${subagentId}`);
+	}
+	const priorSession = ref.session;
+	const session = await AgentLifecycleManager.global().ensureLive(subagentId);
+	// ensureLive awaits; the id may now belong to a different (same-name) agent.
+	const current = AgentRegistry.global().get(subagentId);
+	if (current?.sessionFile !== sessionFile || current.session !== session) {
+		throw new Error(`Subagent ${subagentId} was replaced while it was being revived`);
+	}
+	if (message !== undefined) {
+		const failure = await deliverSubagentMessage(session, subagentId, message);
+		if (failure) throw new Error(failure);
+	}
+	return session !== priorSession;
 }
 
 export async function handleRpcSessionChange(
@@ -2377,6 +2439,24 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 				}
 				const failure = await handleRpcSteerSubagent(subagentRegistry, command.subagentId, command.message);
 				return failure ? error(id, "steer_subagent", failure) : success(id, "steer_subagent");
+			}
+
+			case "revive_subagent": {
+				if (!subagentRegistry) {
+					return error(id, "revive_subagent", "Subagent event bus is unavailable");
+				}
+				if (typeof command.subagentId !== "string" || command.subagentId.length === 0) {
+					return error(id, "revive_subagent", "`subagentId` must be a non-empty string.");
+				}
+				if (command.message !== undefined && (typeof command.message !== "string" || !command.message.trim())) {
+					return error(id, "revive_subagent", "`message` must be a non-blank string when given.");
+				}
+				try {
+					const revived = await handleRpcReviveSubagent(subagentRegistry, command.subagentId, command.message);
+					return success(id, "revive_subagent", { revived });
+				} catch (err) {
+					return error(id, "revive_subagent", err instanceof Error ? err.message : String(err));
+				}
 			}
 
 			// =================================================================

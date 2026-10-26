@@ -7244,6 +7244,25 @@ func (v *CancelSubagentResult) decodeFrom(raw map[string]json.RawMessage) error 
 	return nil
 }
 
+type ReviveSubagentResult struct {
+	Revived bool `json:"revived"`
+}
+
+func (v *ReviveSubagentResult) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "ReviveSubagentResult", v.decodeFrom)
+}
+
+func (v *ReviveSubagentResult) decodeFrom(raw map[string]json.RawMessage) error {
+	var out ReviveSubagentResult
+	d := fieldDecoder{raw: raw, owner: "ReviveSubagentResult"}
+	d.required("revived", &out.Revived)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
 type LiveStartResult struct {
 	Voice string `json:"voice"`
 }
@@ -7929,6 +7948,19 @@ type SteerSubagentCommand struct {
 // SteerSubagent sends "steer_subagent": Send a message to a running subagent as its user.
 func (c Commands) SteerSubagent(ctx context.Context, p SteerSubagentCommand) error {
 	return c.call(ctx, "steer_subagent", p, 0, nil)
+}
+
+// ReviveSubagentCommand holds the parameters of "revive_subagent".
+type ReviveSubagentCommand struct {
+	SubagentID string  `json:"subagentId"`
+	Message    *string `json:"message,omitempty"`
+}
+
+// ReviveSubagent sends "revive_subagent": Bring a finished, parked or killed subagent back from its transcript, optionally sending it a message; false when it was already live.
+func (c Commands) ReviveSubagent(ctx context.Context, p ReviveSubagentCommand) (bool, error) {
+	var out ReviveSubagentResult
+	err := c.call(ctx, "revive_subagent", p, 0, &out)
+	return out.Revived, err
 }
 
 // LiveStartCommand holds the parameters of "live_start".
