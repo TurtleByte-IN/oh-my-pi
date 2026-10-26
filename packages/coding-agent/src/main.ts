@@ -279,6 +279,19 @@ function rejectNoUiWithoutRpc(args: Pick<Args, "noUi" | "mode">): void {
 	process.exit(1);
 }
 
+/**
+ * `rpc-ui` is the mode a GUI host (Ompanel's sidecar) drives. `tools.approvalMode` defaults to
+ * `yolo`, so a host that forgets to choose would run every tool unasked: refuse to start (exit 1)
+ * unless `--approval-mode` names the mode explicitly.
+ */
+function rejectRpcUiWithoutApprovalMode(args: Pick<Args, "mode" | "approvalMode">): void {
+	if (args.mode !== "rpc-ui" || args.approvalMode !== undefined) return;
+	process.stderr.write(
+		`${chalk.red("Error: --mode rpc-ui requires --approval-mode <always-ask|always-ask-cached|write|yolo>")}\n`,
+	);
+	process.exit(1);
+}
+
 /** Fail an interactive launch whose stdin is not a terminal: the TUI cannot run there. */
 function exitWithoutTerminal(): never {
 	process.stderr.write(
@@ -1831,9 +1844,10 @@ export async function runRootCommand(
 			process.exit(1);
 		}
 		// A pending invalid `--mode` leaves `mode` unset; report it (exit 2) at the
-		// post-extension recheck before judging `--no-ui` against the mode.
+		// post-extension recheck before judging `--no-ui` or `--approval-mode` against the mode.
 		if (parsedArgs.invalidFlagValues.length === 0) {
 			rejectNoUiWithoutRpc(parsedArgs);
+			rejectRpcUiWithoutApprovalMode(parsedArgs);
 		}
 		const mode = parsedArgs.mode || "text";
 		// RPC owns stdin. Claim its singleton stream before plugin/extension discovery can load an in-process consumer.
@@ -2437,6 +2451,7 @@ export async function runRootCommand(
 				process.exit(2);
 			}
 			rejectNoUiWithoutRpc(parsedArgs);
+			rejectRpcUiWithoutApprovalMode(parsedArgs);
 			validateRestorePrompt(initialArgs);
 			if (initialArgs.goal !== undefined) {
 				validateGoalStartup(

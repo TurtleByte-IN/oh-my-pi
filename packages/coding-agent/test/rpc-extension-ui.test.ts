@@ -768,6 +768,8 @@ describe("RPC ask dialog", () => {
 				extensionPath,
 				"--mode",
 				"rpc-ui",
+				"--approval-mode",
+				"yolo",
 				"--no-session",
 			],
 			{

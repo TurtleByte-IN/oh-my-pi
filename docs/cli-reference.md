@@ -230,7 +230,7 @@ print-mode disposal semantics when the advisor runtime is enabled.
 | `text` | Rendered text. Omitting `--mode` allows the TUI; explicit `--mode text` selects non-interactive text output. |
 | `json` | Newline-delimited JSON event stream for headless/machine consumption; `-p` is optional. |
 | `rpc` | Line-delimited JSON command/response/event transport over stdio (not JSON-RPC 2.0). See [RPC](./rpc.md). |
-| `rpc-ui` | RPC transport with UI extension events enabled. |
+| `rpc-ui` | RPC transport with UI extension events enabled. Requires an explicit `--approval-mode`; see [approval mode](./approval-mode.md#modes). |
 | `acp` | Agent Client Protocol server over stdio. Equivalent to the [`acp`](#subcommands) subcommand; see [approval mode → ACP sessions](./approval-mode.md#acp-sessions). |
 
 `--no-ui` (with `--mode rpc` or `--mode rpc-ui`) runs extensions headless: `ctx.hasUI` is `false`, extension dialogs resolve to defaults, and extension presentation updates are dropped. In `rpc-ui`, tool UI such as `ask` still sends `extension_ui_request` frames for the host to answer. Host-issued `login` UI is unaffected. See [RPC startup](./rpc.md#startup).
