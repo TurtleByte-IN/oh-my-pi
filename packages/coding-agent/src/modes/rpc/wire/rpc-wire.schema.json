@@ -4309,6 +4309,10 @@
 				},
 				"maxReassembledFrameBytes": {
 					"type": "integer"
+				},
+				"contractVersion": {
+					"type": "string",
+					"description": "Semver of the RPC contract (the wire shape); absent on servers before contract versions."
 				}
 			},
 			"required": [
@@ -5807,6 +5811,10 @@
 			"properties": {
 				"protocolVersion": {
 					"type": "integer"
+				},
+				"contractVersion": {
+					"type": "string",
+					"description": "Semver of the RPC contract (the wire shape); absent on servers before contract versions."
 				}
 			},
 			"required": [

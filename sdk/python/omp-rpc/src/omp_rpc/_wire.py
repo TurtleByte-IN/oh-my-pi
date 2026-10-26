@@ -1209,6 +1209,8 @@ class ReadyEvent:
     supported_protocol_versions: tuple[int, ...] | None = None
     max_frame_bytes: int | None = None
     max_reassembled_frame_bytes: int | None = None
+    contract_version: str | None = None
+    """Semver of the RPC contract (the wire shape); absent on servers before contract versions."""
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -1580,6 +1582,8 @@ class HostUriSchemeDefinition:
 @dataclass(slots=True, frozen=True, kw_only=True)
 class NegotiateProtocolResult:
     protocol_version: int
+    contract_version: str | None = None
+    """Semver of the RPC contract (the wire shape); absent on servers before contract versions."""
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -2568,6 +2572,7 @@ def parse_ready_event(value: object, path: str = "ReadyEvent") -> ReadyEvent:
         supported_protocol_versions=optional(payload, "supportedProtocolVersions", array(decode_int), path),
         max_frame_bytes=optional(payload, "maxFrameBytes", decode_int, path),
         max_reassembled_frame_bytes=optional(payload, "maxReassembledFrameBytes", decode_int, path),
+        contract_version=optional(payload, "contractVersion", decode_str, path),
     )
 
 
@@ -2991,6 +2996,7 @@ def parse_negotiate_protocol_result(value: object, path: str = "NegotiateProtoco
     payload = expect_object(value, path)
     return NegotiateProtocolResult(
         protocol_version=required(payload, "protocolVersion", decode_int, path),
+        contract_version=optional(payload, "contractVersion", decode_str, path),
     )
 
 

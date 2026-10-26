@@ -36,7 +36,13 @@ export const rpcCommands: readonly RpcCommandSpec[] = [
 		name: "negotiate_protocol",
 		doc: "Switch the connection to a protocol version advertised by `ready`.",
 		params: { protocolVersion: "number.integer" },
-		result: { protocolVersion: "number.integer" },
+		result: {
+			protocolVersion: "number.integer",
+			"contractVersion?": doc(
+				"string",
+				"Semver of the RPC contract (the wire shape); absent on servers before contract versions.",
+			),
+		},
 	},
 	{
 		name: "prompt",

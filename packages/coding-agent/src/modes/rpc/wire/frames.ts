@@ -15,6 +15,10 @@ export const frameDefs = {
 			"supportedProtocolVersions?": "number.integer[]",
 			"maxFrameBytes?": "number.integer",
 			"maxReassembledFrameBytes?": "number.integer",
+			"contractVersion?": doc(
+				"string",
+				"Semver of the RPC contract (the wire shape); absent on servers before contract versions.",
+			),
 		},
 		"First frame after startup; transport fields are absent on servers without protocol v2.",
 	),

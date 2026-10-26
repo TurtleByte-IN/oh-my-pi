@@ -4006,6 +4006,9 @@ pub struct ReadyEvent {
 	pub max_frame_bytes: Option<i64>,
 	#[serde(rename = "maxReassembledFrameBytes", default, skip_serializing_if = "Option::is_none")]
 	pub max_reassembled_frame_bytes: Option<i64>,
+	/// Semver of the RPC contract (the wire shape); absent on servers before contract versions.
+	#[serde(rename = "contractVersion", default, skip_serializing_if = "Option::is_none")]
+	pub contract_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -5044,6 +5047,9 @@ pub struct NegotiateProtocolParams {
 pub struct NegotiateProtocolResult {
 	#[serde(rename = "protocolVersion")]
 	pub protocol_version: i64,
+	/// Semver of the RPC contract (the wire shape); absent on servers before contract versions.
+	#[serde(rename = "contractVersion", default, skip_serializing_if = "Option::is_none")]
+	pub contract_version: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
