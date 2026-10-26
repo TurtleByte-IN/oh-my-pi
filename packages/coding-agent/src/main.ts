@@ -640,6 +640,7 @@ async function runInteractiveMode(
 	startupGoal?: string,
 	startupRestore?: () => Promise<RestoreOutcome>,
 	refreshScopedModelsAfterLogin?: () => Promise<void>,
+	brand?: string,
 ): Promise<void> {
 	const InteractiveModeConstructor = await loadInteractiveModeConstructor();
 	let mode: InteractiveMode;
@@ -661,6 +662,7 @@ async function runInteractiveMode(
 		startupLease?.dispose();
 		throw error;
 	}
+	if (brand !== undefined) mode.composer.updateWelcome({ brand });
 
 	let setupWizard: typeof SetupWizardModule | undefined;
 	let setupScenes: SetupScene[] = [];
@@ -2724,6 +2726,7 @@ export async function runRootCommand(
 						initialArgs.goal,
 						parsedArgs.restore ? () => restoreSession(session, { eventBus, subagentEventBus }) : undefined,
 						refreshScopedModelsAfterLogin,
+						parsedArgs.brand,
 					);
 				} finally {
 					startupLease?.dispose();

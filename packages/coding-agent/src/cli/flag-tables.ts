@@ -119,6 +119,16 @@ export const STRING_SETTERS: Record<string, StringSetter> = {
 	"--cwd": (result, value) => {
 		result.cwd = value;
 	},
+	"--brand": (result, value) => {
+		const brand = value.trim();
+		if (brand.length === 0 || /[\p{Cc}]/u.test(brand)) {
+			result.invalidFlagValues.push(
+				`Invalid --brand value: ${JSON.stringify(value)}. Expected a non-empty name without control characters.`,
+			);
+			return;
+		}
+		result.brand = brand;
+	},
 	"--config": (result, value) => {
 		result.config = [...(result.config ?? []), value];
 	},
