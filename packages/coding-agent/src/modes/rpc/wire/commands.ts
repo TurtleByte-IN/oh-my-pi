@@ -255,6 +255,24 @@ export const rpcCommands: readonly RpcCommandSpec[] = [
 		result: { muted: "boolean" },
 		unwrap: "muted",
 	},
+	{
+		name: "collab_start",
+		doc: "Host this session in a collab room (or reuse the live one granting at least `access`, default control) and return its links.",
+		params: {
+			"access?": "CollabAccess",
+			"relay?": doc("string", "Relay override (`host[:port]` or a URL); defaults to `collab.relayUrl`."),
+		},
+		result: "CollabStatus",
+		// Covers the relay's 15 s connect timeout plus stopping a room being replaced.
+		timeoutMs: 30_000,
+	},
+	{
+		name: "collab_stop",
+		doc: "End this session's collab room, telling guests goodbye; false when none was active.",
+		result: { stopped: "boolean" },
+		unwrap: "stopped",
+	},
+	{ name: "collab_status", doc: "Report this session's collab room and its links.", result: "CollabStatus" },
 
 	{
 		name: "set_model",

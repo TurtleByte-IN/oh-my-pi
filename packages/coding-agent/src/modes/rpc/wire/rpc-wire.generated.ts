@@ -1181,6 +1181,36 @@ export interface LiveEndEvent {
 	error?: string;
 }
 
+/** What a collab link grants: `view` watches the session; `control` also lets guests prompt, interrupt and answer dialogs. */
+export type CollabAccess = "view" | "control";
+
+export interface CollabParticipant {
+	name: string;
+	role: "host" | "guest";
+	/** True for a guest that joined through a view link. */
+	readOnly?: boolean;
+}
+
+/** This session's collab room. Links are present only while `active`; anyone holding one reaches the session through the relay, outside any access control of the RPC host. */
+export interface CollabStatus {
+	active: boolean;
+	/** Host first; empty when no room is active. */
+	participants: CollabParticipant[];
+	access?: CollabAccess;
+	/** `omp join` link for the granted access; a capability, never logged. */
+	link?: string;
+	/** Browser link for the granted access; a capability, never logged. */
+	webLink?: string;
+	relayConnected?: boolean;
+}
+
+/** The collab room started, gained or lost a guest, or ended (stop, session change, relay close). Carries no links; call `collab_status` for them. */
+export interface CollabStateEvent {
+	type: "collab_state";
+	active: boolean;
+	participantCount: number;
+}
+
 /** Text appended to the running side question's latest answer. */
 export interface BtwDeltaEvent {
 	type: "btw_delta";
@@ -1535,7 +1565,7 @@ export interface HostUriSchemeDefinition {
 }
 
 /** Unsolicited outbound frame (everything except responses and host tool/URI requests), discriminated by `type`. */
-export type RpcNotification = ReadyEvent | PromptResultEvent | SessionSettledEvent | ExtensionError | ExtensionUiRequest | AvailableCommandsUpdateEvent | SubagentLifecycleEvent | SubagentProgressEvent | SubagentEvent | LivePhaseEvent | LiveLevelsEvent | LiveTranscriptEvent | LiveEndEvent | BtwDeltaEvent | BtwRecordEvent | CommandOutputEvent | SessionInfoUpdateEvent | ConfigUpdateEvent | RpcFrameErrorEvent | RpcAgentEvent;
+export type RpcNotification = ReadyEvent | PromptResultEvent | SessionSettledEvent | ExtensionError | ExtensionUiRequest | AvailableCommandsUpdateEvent | SubagentLifecycleEvent | SubagentProgressEvent | SubagentEvent | LivePhaseEvent | LiveLevelsEvent | LiveTranscriptEvent | LiveEndEvent | CollabStateEvent | BtwDeltaEvent | BtwRecordEvent | CommandOutputEvent | SessionInfoUpdateEvent | ConfigUpdateEvent | RpcFrameErrorEvent | RpcAgentEvent;
 
 /** Any frame the server writes to stdout (after reassembling `rpc_chunk` sequences), discriminated by `type`. */
 export type RpcServerFrame = RpcResponse | RpcHostRequest | RpcNotification;
@@ -1768,6 +1798,16 @@ export interface LiveMuteResult {
 	muted: boolean;
 }
 
+export interface CollabStartParams {
+	access?: CollabAccess;
+	/** Relay override (`host[:port]` or a URL); defaults to `collab.relayUrl`. */
+	relay?: string;
+}
+
+export interface CollabStopResult {
+	stopped: boolean;
+}
+
 export interface SetModelParams {
 	provider: string;
 	modelId: string;
@@ -1977,6 +2017,9 @@ export interface RpcWireCommands {
 	live_start: { params: LiveStartParams; result: LiveStartResult };
 	live_stop: { params: undefined; result: undefined };
 	live_mute: { params: LiveMuteParams; result: LiveMuteResult };
+	collab_start: { params: CollabStartParams; result: CollabStatus };
+	collab_stop: { params: undefined; result: CollabStopResult };
+	collab_status: { params: undefined; result: CollabStatus };
 	set_model: { params: SetModelParams; result: ModelInfo };
 	cycle_model: { params: undefined; result: ModelCycleResult | null };
 	get_available_models: { params: undefined; result: GetAvailableModelsResult };

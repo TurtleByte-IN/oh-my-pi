@@ -21,7 +21,7 @@ import type {
 	AgentEvent as WireAgentEvent,
 	SessionEntry as WireSessionEntry,
 } from "@oh-my-pi/pi-wire";
-import type { InteractiveModeContext } from "../modes/types";
+import type { CollabHostContext } from "./context";
 import { AgentLifecycleManager } from "../registry/agent-lifecycle";
 import { type AgentRef, AgentRegistry } from "../registry/agent-registry";
 import type { AgentSessionEvent } from "../session/agent-session";
@@ -200,7 +200,7 @@ export class CollabRelayUnavailableError extends Error {
 }
 
 export class CollabHost {
-	#ctx: InteractiveModeContext;
+	#ctx: CollabHostContext;
 	#socket: CollabSocket | null = null;
 	#link = "";
 	#webLink = "";
@@ -251,7 +251,7 @@ export class CollabHost {
 	#stopDone: Promise<void> | undefined;
 	#stopped = false;
 
-	constructor(ctx: InteractiveModeContext, options: CollabHostOptions = {}) {
+	constructor(ctx: CollabHostContext, options: CollabHostOptions = {}) {
 		this.#ctx = ctx;
 		this.#instanceId = options.instanceId ?? randomBytes(8).toString("hex");
 		this.#generation = options.generation ?? 1;

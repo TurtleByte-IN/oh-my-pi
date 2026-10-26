@@ -419,6 +419,39 @@
 				"clientOmit": []
 			},
 			{
+				"name": "collab_start",
+				"doc": "Host this session in a collab room (or reuse the live one granting at least `access`, default control) and return its links.",
+				"params": "CollabStartParams",
+				"result": "CollabStatus",
+				"nullable": false,
+				"unwrap": null,
+				"timeoutMs": 30000,
+				"completion": null,
+				"clientOmit": []
+			},
+			{
+				"name": "collab_stop",
+				"doc": "End this session's collab room, telling guests goodbye; false when none was active.",
+				"params": null,
+				"result": "CollabStopResult",
+				"nullable": false,
+				"unwrap": "stopped",
+				"timeoutMs": null,
+				"completion": null,
+				"clientOmit": []
+			},
+			{
+				"name": "collab_status",
+				"doc": "Report this session's collab room and its links.",
+				"params": null,
+				"result": "CollabStatus",
+				"nullable": false,
+				"unwrap": null,
+				"timeoutMs": null,
+				"completion": null,
+				"clientOmit": []
+			},
+			{
 				"name": "set_model",
 				"doc": "Select a model by provider and id.",
 				"params": "SetModelParams",
@@ -4909,6 +4942,91 @@
 			],
 			"description": "Sent exactly once when a live session ends; `error` carries the failure cause."
 		},
+		"CollabAccess": {
+			"enum": [
+				"view",
+				"control"
+			],
+			"type": "string",
+			"description": "What a collab link grants: `view` watches the session; `control` also lets guests prompt, interrupt and answer dialogs."
+		},
+		"CollabParticipant": {
+			"type": "object",
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"role": {
+					"enum": [
+						"host",
+						"guest"
+					],
+					"type": "string"
+				},
+				"readOnly": {
+					"type": "boolean",
+					"description": "True for a guest that joined through a view link."
+				}
+			},
+			"required": [
+				"name",
+				"role"
+			]
+		},
+		"CollabStatus": {
+			"type": "object",
+			"properties": {
+				"active": {
+					"type": "boolean"
+				},
+				"participants": {
+					"type": "array",
+					"items": {
+						"$ref": "#/$defs/CollabParticipant"
+					},
+					"description": "Host first; empty when no room is active."
+				},
+				"access": {
+					"$ref": "#/$defs/CollabAccess"
+				},
+				"link": {
+					"type": "string",
+					"description": "`omp join` link for the granted access; a capability, never logged."
+				},
+				"webLink": {
+					"type": "string",
+					"description": "Browser link for the granted access; a capability, never logged."
+				},
+				"relayConnected": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"active",
+				"participants"
+			],
+			"description": "This session's collab room. Links are present only while `active`; anyone holding one reaches the session through the relay, outside any access control of the RPC host."
+		},
+		"CollabStateEvent": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"const": "collab_state"
+				},
+				"active": {
+					"type": "boolean"
+				},
+				"participantCount": {
+					"type": "integer"
+				}
+			},
+			"required": [
+				"type",
+				"active",
+				"participantCount"
+			],
+			"description": "The collab room started, gained or lost a guest, or ended (stop, session change, relay close). Carries no links; call `collab_status` for them."
+		},
 		"BtwDeltaEvent": {
 			"type": "object",
 			"properties": {
@@ -6079,6 +6197,9 @@
 					"$ref": "#/$defs/LiveEndEvent"
 				},
 				{
+					"$ref": "#/$defs/CollabStateEvent"
+				},
+				{
 					"$ref": "#/$defs/BtwDeltaEvent"
 				},
 				{
@@ -6774,6 +6895,29 @@
 			},
 			"required": [
 				"muted"
+			]
+		},
+		"CollabStartParams": {
+			"type": "object",
+			"properties": {
+				"access": {
+					"$ref": "#/$defs/CollabAccess"
+				},
+				"relay": {
+					"type": "string",
+					"description": "Relay override (`host[:port]` or a URL); defaults to `collab.relayUrl`."
+				}
+			}
+		},
+		"CollabStopResult": {
+			"type": "object",
+			"properties": {
+				"stopped": {
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"stopped"
 			]
 		},
 		"SetModelParams": {

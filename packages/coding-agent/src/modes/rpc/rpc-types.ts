@@ -30,6 +30,8 @@ import type { RpcMessagesPage } from "./rpc-messages";
 import type { GoalModeState } from "../../goals/state";
 import type { RpcGoalOp, RpcGoalResult } from "./rpc-goal";
 import type { BtwHistoryRecord } from "../../session/btw-history";
+import type { CollabAccess } from "../../collab/registry";
+import type { CollabParticipant } from "../../collab/protocol";
 
 // ============================================================================
 // RPC Commands (stdin)
@@ -95,6 +97,10 @@ export type RpcCommand =
 	| { id?: string; type: "live_start"; voice?: string; instructions?: string }
 	| { id?: string; type: "live_stop" }
 	| { id?: string; type: "live_mute"; muted?: boolean }
+	// Collab (live session sharing through the collab relay)
+	| { id?: string; type: "collab_start"; access?: CollabAccess; relay?: string }
+	| { id?: string; type: "collab_stop" }
+	| { id?: string; type: "collab_status" }
 
 	// Model
 	| { id?: string; type: "set_model"; provider: string; modelId: string }
@@ -307,6 +313,26 @@ export interface RpcLiveEndFrame {
 }
 
 export type RpcLiveFrame = RpcLivePhaseFrame | RpcLiveLevelsFrame | RpcLiveTranscriptFrame | RpcLiveEndFrame;
+
+/** This session's collab room; links are present only while `active`. */
+export interface RpcCollabStatus {
+	active: boolean;
+	access?: CollabAccess;
+	/** `omp join` link for `access`. A capability: never log it. */
+	link?: string;
+	/** Browser link for `access`. A capability: never log it. */
+	webLink?: string;
+	relayConnected?: boolean;
+	/** Host first; empty when no room is active. */
+	participants: CollabParticipant[];
+}
+
+/** The collab room started, gained or lost a guest, or ended. Carries no links. */
+export interface RpcCollabStateFrame {
+	type: "collab_state";
+	active: boolean;
+	participantCount: number;
+}
 
 /** `open_session` result: `resumed` is false when a fresh session was started in the directory. */
 export interface RpcOpenSessionResult {
@@ -599,6 +625,9 @@ export type RpcResponse =
 	| { id?: string; type: "response"; command: "live_start"; success: true; data: { voice: string } }
 	| { id?: string; type: "response"; command: "live_stop"; success: true }
 	| { id?: string; type: "response"; command: "live_mute"; success: true; data: { muted: boolean } }
+	| { id?: string; type: "response"; command: "collab_start"; success: true; data: RpcCollabStatus }
+	| { id?: string; type: "response"; command: "collab_stop"; success: true; data: { stopped: boolean } }
+	| { id?: string; type: "response"; command: "collab_status"; success: true; data: RpcCollabStatus }
 	| { id?: string; type: "response"; command: "handoff"; success: true; data: RpcHandoffResult | null }
 
 	// Messages

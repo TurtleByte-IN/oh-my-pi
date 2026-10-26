@@ -4360,6 +4360,60 @@ pub struct LiveEndEvent {
 	pub error: Option<String>,
 }
 
+/// What a collab link grants: `view` watches the session; `control` also lets guests prompt, interrupt and answer dialogs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CollabAccess {
+	#[serde(rename = "view")]
+	View,
+	#[serde(rename = "control")]
+	Control,
+}
+
+impl CollabAccess {
+	/// Wire value.
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::View => "view",
+			Self::Control => "control",
+		}
+	}
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CollabParticipant {
+	pub name: String,
+	pub role: CollabParticipantRole,
+	/// True for a guest that joined through a view link.
+	#[serde(rename = "readOnly", default, skip_serializing_if = "Option::is_none")]
+	pub read_only: Option<bool>,
+}
+
+/// This session's collab room. Links are present only while `active`; anyone holding one reaches the session through the relay, outside any access control of the RPC host.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CollabStatus {
+	pub active: bool,
+	/// Host first; empty when no room is active.
+	pub participants: Vec<CollabParticipant>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub access: Option<CollabAccess>,
+	/// `omp join` link for the granted access; a capability, never logged.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub link: Option<String>,
+	/// Browser link for the granted access; a capability, never logged.
+	#[serde(rename = "webLink", default, skip_serializing_if = "Option::is_none")]
+	pub web_link: Option<String>,
+	#[serde(rename = "relayConnected", default, skip_serializing_if = "Option::is_none")]
+	pub relay_connected: Option<bool>,
+}
+
+/// The collab room started, gained or lost a guest, or ended (stop, session change, relay close). Carries no links; call `collab_status` for them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CollabStateEvent {
+	pub active: bool,
+	#[serde(rename = "participantCount")]
+	pub participant_count: i64,
+}
+
 /// Text appended to the running side question's latest answer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BtwDeltaEvent {
@@ -5101,6 +5155,8 @@ pub enum RpcNotification {
 	LiveTranscript(LiveTranscriptEvent),
 	/// Sent exactly once when a live session ends; `error` carries the failure cause.
 	LiveEnd(LiveEndEvent),
+	/// The collab room started, gained or lost a guest, or ended (stop, session change, relay close). Carries no links; call `collab_status` for them.
+	CollabState(CollabStateEvent),
 	/// Text appended to the running side question's latest answer.
 	BtwDelta(BtwDeltaEvent),
 	/// Full side-question record on every lifecycle change (started, complete, cancelled, error); the last one per id wins.
@@ -5136,6 +5192,7 @@ impl RpcNotification {
 			Some("live_levels") => |value| serde_json::from_value(value).map(Self::LiveLevels),
 			Some("live_transcript") => |value| serde_json::from_value(value).map(Self::LiveTranscript),
 			Some("live_end") => |value| serde_json::from_value(value).map(Self::LiveEnd),
+			Some("collab_state") => |value| serde_json::from_value(value).map(Self::CollabState),
 			Some("btw_delta") => |value| serde_json::from_value(value).map(Self::BtwDelta),
 			Some("btw_record") => |value| serde_json::from_value(value).map(Self::BtwRecord),
 			Some("command_output") => |value| serde_json::from_value(value).map(Self::CommandOutput),
@@ -5165,6 +5222,7 @@ impl Serialize for RpcNotification {
 			Self::LiveLevels(member) => serialize_tagged(member, &[("type", "live_levels")], serializer),
 			Self::LiveTranscript(member) => serialize_tagged(member, &[("type", "live_transcript")], serializer),
 			Self::LiveEnd(member) => serialize_tagged(member, &[("type", "live_end")], serializer),
+			Self::CollabState(member) => serialize_tagged(member, &[("type", "collab_state")], serializer),
 			Self::BtwDelta(member) => serialize_tagged(member, &[("type", "btw_delta")], serializer),
 			Self::BtwRecord(member) => serialize_tagged(member, &[("type", "btw_record")], serializer),
 			Self::CommandOutput(member) => serialize_tagged(member, &[("type", "command_output")], serializer),
@@ -5202,7 +5260,7 @@ impl RpcServerFrame {
 		let decode: fn(Value) -> Result<Self, serde_json::Error> = match value.get("type").and_then(Value::as_str) {
 			Some("response") => |value| serde_json::from_value(value).map(Self::Response),
 			Some("host_tool_call" | "host_tool_cancel" | "host_uri_request" | "host_uri_cancel" | "host_cwd_change_request" | "host_cwd_change_cancel") => |value| serde_json::from_value(value).map(Self::RpcHostRequest),
-			Some("ready" | "prompt_result" | "session_settled" | "extension_error" | "extension_ui_request" | "available_commands_update" | "subagent_lifecycle" | "subagent_progress" | "subagent_event" | "live_phase" | "live_levels" | "live_transcript" | "live_end" | "btw_delta" | "btw_record" | "command_output" | "session_info_update" | "config_update" | "rpc_frame_error" | "agent_start" | "agent_end" | "turn_start" | "turn_end" | "message_start" | "message_update" | "message_end" | "tool_execution_start" | "tool_execution_update" | "tool_stream_update" | "tool_execution_end" | "auto_compaction_start" | "auto_compaction_end" | "manual_compaction_start" | "manual_compaction_end" | "auto_retry_start" | "auto_retry_end" | "cache_warming_start" | "cache_warming_end" | "retry_fallback_applied" | "retry_fallback_succeeded" | "model_changed" | "config_warnings_changed" | "advisor_cost_changed" | "advisor_yielded" | "ttsr_triggered" | "todo_reminder" | "todo_auto_clear" | "irc_message" | "notice" | "thinking_level_changed" | "goal_updated" | "queue_update") => |value| serde_json::from_value(value).map(Self::RpcNotification),
+			Some("ready" | "prompt_result" | "session_settled" | "extension_error" | "extension_ui_request" | "available_commands_update" | "subagent_lifecycle" | "subagent_progress" | "subagent_event" | "live_phase" | "live_levels" | "live_transcript" | "live_end" | "collab_state" | "btw_delta" | "btw_record" | "command_output" | "session_info_update" | "config_update" | "rpc_frame_error" | "agent_start" | "agent_end" | "turn_start" | "turn_end" | "message_start" | "message_update" | "message_end" | "tool_execution_start" | "tool_execution_update" | "tool_stream_update" | "tool_execution_end" | "auto_compaction_start" | "auto_compaction_end" | "manual_compaction_start" | "manual_compaction_end" | "auto_retry_start" | "auto_retry_end" | "cache_warming_start" | "cache_warming_end" | "retry_fallback_applied" | "retry_fallback_succeeded" | "model_changed" | "config_warnings_changed" | "advisor_cost_changed" | "advisor_yielded" | "ttsr_triggered" | "todo_reminder" | "todo_auto_clear" | "irc_message" | "notice" | "thinking_level_changed" | "goal_updated" | "queue_update") => |value| serde_json::from_value(value).map(Self::RpcNotification),
 			_ => |value| Ok(Self::Unknown(value)),
 		};
 		decode(value)
@@ -5534,6 +5592,20 @@ pub struct LiveMuteParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LiveMuteResult {
 	pub muted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CollabStartParams {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub access: Option<CollabAccess>,
+	/// Relay override (`host[:port]` or a URL); defaults to `collab.relayUrl`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub relay: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CollabStopResult {
+	pub stopped: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -6007,6 +6079,24 @@ impl LogoutAccountType {
 		match self {
 			Self::ApiKey => "api_key",
 			Self::Oauth => "oauth",
+		}
+	}
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CollabParticipantRole {
+	#[serde(rename = "host")]
+	Host,
+	#[serde(rename = "guest")]
+	Guest,
+}
+
+impl CollabParticipantRole {
+	/// Wire value.
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Host => "host",
+			Self::Guest => "guest",
 		}
 	}
 }
@@ -6820,6 +6910,54 @@ impl Command for LiveMuteCommand {
 
 	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
 		serde_json::from_value::<LiveMuteResult>(data.unwrap_or_else(|| Value::Object(Map::new()))).map(|result| result.muted)
+	}
+}
+
+/// Host this session in a collab room (or reuse the live one granting at least `access`, default control) and return its links.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CollabStartCommand {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub access: Option<CollabAccess>,
+	/// Relay override (`host[:port]` or a URL); defaults to `collab.relayUrl`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub relay: Option<String>,
+}
+
+impl Command for CollabStartCommand {
+	const NAME: &'static str = "collab_start";
+	const TIMEOUT_MS: Option<u64> = Some(30000);
+	type Output = CollabStatus;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<CollabStatus>(data.unwrap_or_else(|| Value::Object(Map::new())))
+	}
+}
+
+/// End this session's collab room, telling guests goodbye; false when none was active.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CollabStopCommand {}
+
+impl Command for CollabStopCommand {
+	const NAME: &'static str = "collab_stop";
+	const TIMEOUT_MS: Option<u64> = None;
+	type Output = bool;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<CollabStopResult>(data.unwrap_or_else(|| Value::Object(Map::new()))).map(|result| result.stopped)
+	}
+}
+
+/// Report this session's collab room and its links.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CollabStatusCommand {}
+
+impl Command for CollabStatusCommand {
+	const NAME: &'static str = "collab_status";
+	const TIMEOUT_MS: Option<u64> = None;
+	type Output = CollabStatus;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<CollabStatus>(data.unwrap_or_else(|| Value::Object(Map::new())))
 	}
 }
 

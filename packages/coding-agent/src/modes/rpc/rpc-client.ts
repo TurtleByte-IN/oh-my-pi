@@ -41,6 +41,8 @@ import type {
 	RpcHostToolDefinition,
 	RpcHostToolResult,
 	RpcHostToolUpdate,
+	RpcCollabStateFrame,
+	RpcCollabStatus,
 	RpcLiveFrame,
 	RpcLoginProvider,
 	RpcOpenSessionResult,
@@ -119,6 +121,7 @@ export type RpcAvailableCommandsUpdateListener = (commands: RpcAvailableSlashCom
 export type RpcPromptResultListener = (result: RpcPromptResultFrame) => void;
 export type RpcSessionSettledListener = () => void;
 export type RpcLiveListener = (frame: RpcLiveFrame) => void;
+export type RpcCollabStateListener = (frame: RpcCollabStateFrame) => void;
 
 export interface RpcClientToolContext<TDetails = unknown> {
 	toolCallId: string;
@@ -254,6 +257,15 @@ function isRpcLiveFrame(value: unknown): value is RpcLiveFrame {
 	return isRecord(value) && typeof value.type === "string" && Object.hasOwn(LIVE_FRAME_TYPES, value.type);
 }
 
+function isRpcCollabStateFrame(value: unknown): value is RpcCollabStateFrame {
+	return (
+		isRecord(value) &&
+		value.type === "collab_state" &&
+		typeof value.active === "boolean" &&
+		typeof value.participantCount === "number"
+	);
+}
+
 function isRpcAvailableCommandsUpdateFrame(value: unknown): value is RpcAvailableCommandsUpdateFrame {
 	if (!isRecord(value)) return false;
 	return value.type === "available_commands_update" && Array.isArray(value.commands);
@@ -340,6 +352,7 @@ export class RpcClient {
 	#promptResultListeners = new Set<RpcPromptResultListener>();
 	#sessionSettledListeners = new Set<RpcSessionSettledListener>();
 	#liveListeners = new Set<RpcLiveListener>();
+	#collabStateListeners = new Set<RpcCollabStateListener>();
 	/** `promptAndWait` completions keyed by request id; registered before the prompt is sent. */
 	#promptResultWaiters = new Map<string, (result: RpcPromptResultFrame) => void>();
 	/** Same-id failures that arrive after the success ack removed the pending request. */
@@ -678,6 +691,14 @@ export class RpcClient {
 		};
 	}
 
+	/** Subscribe to `collab_state` frames (room started, guest joined or left, room ended). */
+	onCollabState(listener: RpcCollabStateListener): () => void {
+		this.#collabStateListeners.add(listener);
+		return () => {
+			this.#collabStateListeners.delete(listener);
+		};
+	}
+
 	/**
 	 * Get collected stderr output (useful for debugging).
 	 */
@@ -902,6 +923,24 @@ export class RpcClient {
 	/** Set microphone mute, or toggle it when `muted` is omitted. Fails without an active session. */
 	async liveMute(muted?: boolean): Promise<{ muted: boolean }> {
 		const response = await this.#send({ type: "live_mute", muted });
+		return this.#getData(response);
+	}
+
+	/** Host this session in a collab room (default control access) and return its links. */
+	async collabStart(options?: { access?: "view" | "control"; relay?: string }): Promise<RpcCollabStatus> {
+		const response = await this.#send({ type: "collab_start", access: options?.access, relay: options?.relay });
+		return this.#getData(response);
+	}
+
+	/** End this session's collab room; false when none was active. */
+	async collabStop(): Promise<boolean> {
+		const response = await this.#send({ type: "collab_stop" });
+		return this.#getData<{ stopped: boolean }>(response).stopped;
+	}
+
+	/** This session's collab room and its links. */
+	async collabStatus(): Promise<RpcCollabStatus> {
+		const response = await this.#send({ type: "collab_status" });
 		return this.#getData(response);
 	}
 
@@ -1568,6 +1607,13 @@ export class RpcClient {
 
 		if (isRpcLiveFrame(data)) {
 			for (const listener of this.#liveListeners) {
+				listener(data);
+			}
+			return;
+		}
+
+		if (isRpcCollabStateFrame(data)) {
+			for (const listener of this.#collabStateListeners) {
 				listener(data);
 			}
 			return;

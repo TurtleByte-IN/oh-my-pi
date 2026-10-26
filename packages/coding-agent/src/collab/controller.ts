@@ -13,7 +13,7 @@
 import { randomBytes } from "node:crypto";
 import { logger } from "@oh-my-pi/pi-utils";
 import { sanitizeDisplayLine } from "@oh-my-pi/pi-tui/overlays/extensions/display-text";
-import type { InteractiveModeContext } from "../modes/types";
+import type { CollabHostContext } from "./context";
 import { TRUNCATE_LENGTHS, truncateToWidth } from "@oh-my-pi/pi-tui/render/render-utils";
 import { CollabHost, CollabHostStoppedError, CollabRelayUnavailableError } from "./host";
 import type { CollabAccess } from "./registry";
@@ -40,9 +40,18 @@ export interface CollabStartOptions {
 	relay?: string;
 }
 
+export interface CollabControllerOptions {
+	/**
+	 * Apply the `collab.autoStart` setting (default true). RPC hosts pass false:
+	 * every room there is an explicit `collab_start`, never a saved policy.
+	 */
+	followAutoStartSetting?: boolean;
+}
+
 export class CollabController {
 	readonly instanceId: string;
-	#ctx: InteractiveModeContext;
+	#ctx: CollabHostContext;
+	readonly #followAutoStartSetting: boolean;
 	#generation = 0;
 	#host: CollabHost | undefined;
 	/** Serializes stop/start sequences so a rotation never interleaves with another. */
@@ -63,8 +72,9 @@ export class CollabController {
 	#lastRelaunchCauseAt: number | undefined;
 	#relaunchTimer: Timer | undefined;
 
-	constructor(ctx: InteractiveModeContext) {
+	constructor(ctx: CollabHostContext, options: CollabControllerOptions = {}) {
 		this.#ctx = ctx;
+		this.#followAutoStartSetting = options.followAutoStartSetting ?? true;
 		// 64 random bits: unique per process on one machine, short enough for `omp collab link <id>` and socket paths.
 		this.instanceId = randomBytes(8).toString("hex");
 	}
@@ -81,7 +91,7 @@ export class CollabController {
 	}
 
 	get autoStartMode(): CollabAutoStart {
-		return cfgCollabAutoStart.get(this.#ctx.settings);
+		return this.#followAutoStartSetting ? cfgCollabAutoStart.get(this.#ctx.settings) : "off";
 	}
 
 	/**

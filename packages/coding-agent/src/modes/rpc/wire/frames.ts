@@ -126,6 +126,30 @@ export const frameDefs = {
 		{ type: "'live_end'", "error?": "string" },
 		"Sent exactly once when a live session ends; `error` carries the failure cause.",
 	),
+	CollabAccess: doc(
+		"'view' | 'control'",
+		"What a collab link grants: `view` watches the session; `control` also lets guests prompt, interrupt and answer dialogs.",
+	),
+	CollabParticipant: {
+		name: "string",
+		role: "'host' | 'guest'",
+		"readOnly?": doc("boolean", "True for a guest that joined through a view link."),
+	},
+	CollabStatus: doc(
+		{
+			active: "boolean",
+			"access?": "CollabAccess",
+			"link?": doc("string", "`omp join` link for the granted access; a capability, never logged."),
+			"webLink?": doc("string", "Browser link for the granted access; a capability, never logged."),
+			"relayConnected?": "boolean",
+			participants: doc("CollabParticipant[]", "Host first; empty when no room is active."),
+		},
+		"This session's collab room. Links are present only while `active`; anyone holding one reaches the session through the relay, outside any access control of the RPC host.",
+	),
+	CollabStateEvent: doc(
+		{ type: "'collab_state'", active: "boolean", participantCount: "number.integer" },
+		"The collab room started, gained or lost a guest, or ended (stop, session change, relay close). Carries no links; call `collab_status` for them.",
+	),
 	BtwDeltaEvent: doc(
 		{ type: "'btw_delta'", recordId: "string", delta: "string" },
 		"Text appended to the running side question's latest answer.",

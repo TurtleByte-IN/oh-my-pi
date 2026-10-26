@@ -198,6 +198,12 @@ _LIVE_ROLE_VALUES: Final[frozenset[str]] = frozenset({"user", "assistant"})
 _decode_live_role = cast("Decoder[LiveRole]", literal(_LIVE_ROLE_VALUES))
 
 
+CollabAccess: TypeAlias = Literal["view", "control"]
+"""What a collab link grants: `view` watches the session; `control` also lets guests prompt, interrupt and answer dialogs."""
+_COLLAB_ACCESS_VALUES: Final[frozenset[str]] = frozenset({"view", "control"})
+_decode_collab_access = cast("Decoder[CollabAccess]", literal(_COLLAB_ACCESS_VALUES))
+
+
 WidgetPlacement: TypeAlias = Literal["aboveEditor", "belowEditor"]
 _WIDGET_PLACEMENT_VALUES: Final[frozenset[str]] = frozenset({"aboveEditor", "belowEditor"})
 _decode_widget_placement = cast("Decoder[WidgetPlacement]", literal(_WIDGET_PLACEMENT_VALUES))
@@ -1400,6 +1406,36 @@ class LiveEndEvent:
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
+class CollabParticipant:
+    name: str
+    role: Literal["host", "guest"]
+    read_only: bool | None = None
+    """True for a guest that joined through a view link."""
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class CollabStatus:
+    """This session's collab room. Links are present only while `active`; anyone holding one reaches the session through the relay, outside any access control of the RPC host."""
+    active: bool
+    participants: tuple[CollabParticipant, ...]
+    """Host first; empty when no room is active."""
+    access: CollabAccess | None = None
+    link: str | None = None
+    """`omp join` link for the granted access; a capability, never logged."""
+    web_link: str | None = None
+    """Browser link for the granted access; a capability, never logged."""
+    relay_connected: bool | None = None
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class CollabStateEvent:
+    """The collab room started, gained or lost a guest, or ended (stop, session change, relay close). Carries no links; call `collab_status` for them."""
+    type: Literal["collab_state"] = "collab_state"
+    active: bool
+    participant_count: int
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
 class BtwDeltaEvent:
     """Text appended to the running side question's latest answer."""
     type: Literal["btw_delta"] = "btw_delta"
@@ -1691,7 +1727,7 @@ RpcAgentEvent: TypeAlias = AgentStartEvent | AgentEndEvent | TurnStartEvent | Tu
 """A session event, discriminated by `type`; `set_event_filter` selects which are sent."""
 
 
-RpcNotification: TypeAlias = ReadyEvent | PromptResultEvent | SessionSettledEvent | ExtensionError | ExtensionUiRequest | AvailableCommandsUpdateEvent | SubagentLifecycleEvent | SubagentProgressEvent | SubagentEvent | LivePhaseEvent | LiveLevelsEvent | LiveTranscriptEvent | LiveEndEvent | BtwDeltaEvent | BtwRecordEvent | CommandOutputEvent | SessionInfoUpdateEvent | ConfigUpdateEvent | RpcFrameErrorEvent | RpcAgentEvent | UnknownNotification
+RpcNotification: TypeAlias = ReadyEvent | PromptResultEvent | SessionSettledEvent | ExtensionError | ExtensionUiRequest | AvailableCommandsUpdateEvent | SubagentLifecycleEvent | SubagentProgressEvent | SubagentEvent | LivePhaseEvent | LiveLevelsEvent | LiveTranscriptEvent | LiveEndEvent | CollabStateEvent | BtwDeltaEvent | BtwRecordEvent | CommandOutputEvent | SessionInfoUpdateEvent | ConfigUpdateEvent | RpcFrameErrorEvent | RpcAgentEvent | UnknownNotification
 """Unsolicited outbound frame (everything except responses and host tool/URI requests), discriminated by `type`."""
 
 
@@ -2830,6 +2866,36 @@ def parse_live_end_event(value: object, path: str = "LiveEndEvent") -> LiveEndEv
     )
 
 
+def parse_collab_participant(value: object, path: str = "CollabParticipant") -> CollabParticipant:
+    payload = expect_object(value, path)
+    return CollabParticipant(
+        name=required(payload, "name", decode_str, path),
+        role=required(payload, "role", cast('Decoder[Literal["host", "guest"]]', literal(frozenset({"host", "guest"}))), path),
+        read_only=optional(payload, "readOnly", decode_bool, path),
+    )
+
+
+def parse_collab_status(value: object, path: str = "CollabStatus") -> CollabStatus:
+    payload = expect_object(value, path)
+    return CollabStatus(
+        active=required(payload, "active", decode_bool, path),
+        participants=required(payload, "participants", array(parse_collab_participant), path),
+        access=optional(payload, "access", _decode_collab_access, path),
+        link=optional(payload, "link", decode_str, path),
+        web_link=optional(payload, "webLink", decode_str, path),
+        relay_connected=optional(payload, "relayConnected", decode_bool, path),
+    )
+
+
+def parse_collab_state_event(value: object, path: str = "CollabStateEvent") -> CollabStateEvent:
+    payload = expect_object(value, path)
+    required(payload, "type", cast('Decoder[Literal["collab_state"]]', literal(frozenset({"collab_state"}))), path)
+    return CollabStateEvent(
+        active=required(payload, "active", decode_bool, path),
+        participant_count=required(payload, "participantCount", decode_int, path),
+    )
+
+
 def parse_btw_delta_event(value: object, path: str = "BtwDeltaEvent") -> BtwDeltaEvent:
     payload = expect_object(value, path)
     required(payload, "type", cast('Decoder[Literal["btw_delta"]]', literal(frozenset({"btw_delta"}))), path)
@@ -3208,6 +3274,7 @@ _RPC_NOTIFICATION_CASES: Final[dict[str, Decoder[RpcNotification]]] = {
         "live_levels": parse_live_levels_event,
         "live_transcript": parse_live_transcript_event,
         "live_end": parse_live_end_event,
+        "collab_state": parse_collab_state_event,
         "btw_delta": parse_btw_delta_event,
         "btw_record": parse_btw_record_event,
         "command_output": parse_command_output_event,
@@ -3467,6 +3534,25 @@ class WireClient:
         if muted is not None:
             params["muted"] = muted
         return required(expect_object(self._command("live_mute", params), "live_mute"), "muted", decode_bool, "live_mute")
+
+    def collab_start(self, *, access: CollabAccess | None = None, relay: str | None = None) -> CollabStatus:
+        """Host this session in a collab room (or reuse the live one granting at least `access`, default control) and return its links."""
+        params: dict[str, object] = {}
+        if access is not None:
+            params["access"] = access
+        if relay is not None:
+            params["relay"] = relay
+        return parse_collab_status(self._command("collab_start", params, timeout=30), "collab_start")
+
+    def collab_stop(self) -> bool:
+        """End this session's collab room, telling guests goodbye; false when none was active."""
+        params: dict[str, object] = {}
+        return required(expect_object(self._command("collab_stop", params), "collab_stop"), "stopped", decode_bool, "collab_stop")
+
+    def collab_status(self) -> CollabStatus:
+        """Report this session's collab room and its links."""
+        params: dict[str, object] = {}
+        return parse_collab_status(self._command("collab_status", params), "collab_status")
 
     def set_model(self, provider: str, model_id: str) -> ModelInfo:
         """Select a model by provider and id."""
@@ -3746,6 +3832,10 @@ class WireClient:
         """Subscribe to `live_end`: Sent exactly once when a live session ends; `error` carries the failure cause."""
         return self._listen("live_end", listener)
 
+    def on_collab_state(self, listener: Callable[[CollabStateEvent], None]) -> Callable[[], None]:
+        """Subscribe to `collab_state`: The collab room started, gained or lost a guest, or ended (stop, session change, relay close). Carries no links; call `collab_status` for them."""
+        return self._listen("collab_state", listener)
+
     def on_btw_delta(self, listener: Callable[[BtwDeltaEvent], None]) -> Callable[[], None]:
         """Subscribe to `btw_delta`: Text appended to the running side question's latest answer."""
         return self._listen("btw_delta", listener)
@@ -3959,6 +4049,10 @@ __all__ = [
     "CacheWarmingStartEvent",
     "CancelUiRequest",
     "CancellationResult",
+    "CollabAccess",
+    "CollabParticipant",
+    "CollabStateEvent",
+    "CollabStatus",
     "CommandOutputEvent",
     "CompactionResult",
     "CompactionSummaryMessage",
@@ -4148,6 +4242,9 @@ __all__ = [
     "parse_cache_warming_start_event",
     "parse_cancel_ui_request",
     "parse_cancellation_result",
+    "parse_collab_participant",
+    "parse_collab_state_event",
+    "parse_collab_status",
     "parse_command_output_event",
     "parse_compaction_result",
     "parse_compaction_summary_message",

@@ -41,6 +41,8 @@ import type {
 	RpcHostUriRequest,
 	RpcHostUriResult,
 	RpcHostUriSchemeDefinition,
+	RpcCollabStateFrame,
+	RpcCollabStatus,
 	RpcLiveEndFrame,
 	RpcLiveLevelsFrame,
 	RpcLivePhaseFrame,
@@ -213,6 +215,9 @@ export type Frames = Assert<
 		liveLevels: Outbound<RpcLiveLevelsFrame, Wire.LiveLevelsEvent>;
 		liveTranscript: Outbound<RpcLiveTranscriptFrame, Wire.LiveTranscriptEvent>;
 		liveEnd: Outbound<RpcLiveEndFrame, Wire.LiveEndEvent>;
+		collabState: Outbound<RpcCollabStateFrame, Wire.CollabStateEvent>;
+		collabStatus: Outbound<RpcCollabStatus, Wire.CollabStatus>;
+		collabParticipant: Outbound<RpcCollabStatus["participants"][number], Wire.CollabParticipant>;
 		btwDelta: Outbound<RpcBtwDeltaFrame, Wire.BtwDeltaEvent>;
 		btwRecord: Outbound<RpcBtwRecordFrame, Wire.BtwRecordEvent>;
 		hostToolCall: Outbound<RpcHostToolCallRequest, Wire.HostToolCallRequest>;
