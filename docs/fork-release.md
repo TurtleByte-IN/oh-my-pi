@@ -133,3 +133,68 @@ workflow artifact. A dry run dispatched from a tag publishes nothing either.
 Without a cache, a release or dry run takes about 2.5 hours. Most of that is
 `native_addons_cross`, which builds seven addon targets one after another (2 h 22 min in run
 40252620252). The binary builds, smoke tests and asset assembly take about 4 minutes after that.
+
+## Upstream adoption
+
+The fork adopts upstream releases, not upstream `main` (PRD §4, merge cadence; §10, upstream
+merge). `.github/workflows/upstream-adopt.yml` does this. A fork receives no events from
+`can1357/oh-my-pi`, so the workflow polls upstream's tags every six hours. It reads them over
+public HTTPS with its push URL disabled, so it cannot push upstream.
+
+Each run picks the newest stable upstream tag (`vX.Y.Z`; `-ompanel.N` and other suffixes are
+ignored). A newer tag contains the older ones, so tags in between are not considered on their
+own. The run stops when fork `main` already contains the tag, or when an earlier run already
+decided it, i.e. a PR from `chore/upstream-<tag>` or a `Upstream <tag> not adopted: …` issue
+exists in any state. Otherwise it merges the tag into `main` on the runner, on branch
+`chore/upstream-<tag>`, and runs the RPC contract suite on the result. That is the same
+command as the `RPC contract` job in `ci.yml`, with the append-only check against `main`. It runs
+against the linux-x64 addons upstream published to npm for that version, because the fork does
+not change native code. Then one of these happens:
+
+- The merge conflicts: the run opens issue `Upstream <tag> not adopted: merge conflicts`,
+  labelled `upstream-merge`. The issue lists the conflicting files and the commands to adopt the
+  tag by hand. The contract suite does not run, and nothing is pushed.
+- The contract suite fails, or cannot run: the run opens issue
+  `Upstream <tag> not adopted: RPC contract suite failed` (or `… did not run`). The tag is
+  skipped and nothing is pushed. A later tag is considered when upstream publishes it.
+- The contract suite passes: the run pushes `chore/upstream-<tag>`, opens adoption PR
+  `chore: adopt upstream <tag>` labelled `upstream-merge`, and dispatches `ci.yml` on the
+  branch. Older open `upstream-merge` PRs and issues are closed as superseded; their branches are
+  kept.
+
+To evaluate a skipped tag again, dispatch the workflow with that tag. A dispatch that names a
+tag ignores earlier decisions:
+
+```bash
+gh workflow run upstream-adopt.yml -R TurtleByte-IN/oh-my-pi -f tag=v18.13.0 -f dry_run=false
+```
+
+A dispatch is a dry run unless `dry_run=false` is given. A dry run merges and runs the contract
+suite on the runner, then reports the PR or issue it would open in the run summary. It pushes,
+opens and dispatches nothing. A dry run that names a tag `main` already contains still runs every
+step, with the merge a no-op, which exercises the pipeline.
+
+### How the adoption PR gets its CI
+
+A pull request opened with `GITHUB_TOKEN` starts no `pull_request` workflows. So the workflow
+runs `gh workflow run ci.yml --ref chore/upstream-<tag>`. That run is not a pull-request run.
+It builds the linux-x64 addons from source with Bazel, with no cache in the fork, and runs
+`rust_validate`, so it takes longer than a PR run. It reports `CI gate` on the PR's head commit,
+which is the check branch protection requires. The PR therefore cannot merge until the full
+suite passes. A push to the branch by a person, for example a fix, runs CI the usual way.
+
+### What GITHUB_TOKEN cannot do
+
+`GITHUB_TOKEN` cannot push a commit that changes `.github/workflows`, and upstream changes
+`ci.yml` often. When the push fails, the workflow opens an `Upstream <tag> not adopted: push
+failed` issue with the error and fails the run. Push that merge by hand over SSH, with the
+commands from a conflict issue.
+
+An optional repository secret, `UPSTREAM_MERGE_TOKEN`, removes this gap. It is a fine-grained
+token for this repository with read and write access to contents, pull requests, issues, actions
+and workflows. With it, the workflow pushes and opens the PR as the token's owner. That PR runs
+CI like any other, so nothing is dispatched. Only an admin can create the token; until then, the
+`GITHUB_TOKEN` path above applies.
+
+The repository setting "Allow GitHub Actions to create and approve pull requests" (Settings →
+Actions → General) must stay on, or `gh pr create` fails.
