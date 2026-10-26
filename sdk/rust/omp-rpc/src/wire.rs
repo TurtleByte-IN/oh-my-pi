@@ -3398,6 +3398,12 @@ pub struct SubagentSnapshot {
 	pub progress: Option<Map<String, Value>>,
 	#[serde(rename = "parentToolCallId", default, skip_serializing_if = "Option::is_none")]
 	pub parent_tool_call_id: Option<String>,
+	/// Id of the subagent that spawned this one; null when the root session spawned it.
+	#[serde(rename = "parentId", default = "default_subagent_snapshot_parent_id")]
+	pub parent_id: Option<String>,
+	/// Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.
+	#[serde(default = "default_subagent_snapshot_depth")]
+	pub depth: i64,
 }
 
 /// Incremental subagent transcript read.
@@ -4142,6 +4148,12 @@ pub struct SubagentLifecyclePayload {
 	pub session_file: Option<String>,
 	#[serde(rename = "parentToolCallId", default, skip_serializing_if = "Option::is_none")]
 	pub parent_tool_call_id: Option<String>,
+	/// Id of the subagent that spawned this one; null when the root session spawned it.
+	#[serde(rename = "parentId", default = "default_subagent_lifecycle_payload_parent_id")]
+	pub parent_id: Option<String>,
+	/// Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.
+	#[serde(default = "default_subagent_lifecycle_payload_depth")]
+	pub depth: i64,
 	/// The subagent runs as a detached background job.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub detached: Option<bool>,
@@ -4158,6 +4170,12 @@ pub struct SubagentProgressPayload {
 	pub progress: Map<String, Value>,
 	#[serde(rename = "parentToolCallId", default, skip_serializing_if = "Option::is_none")]
 	pub parent_tool_call_id: Option<String>,
+	/// Id of the subagent that spawned this one; null when the root session spawned it.
+	#[serde(rename = "parentId", default = "default_subagent_progress_payload_parent_id")]
+	pub parent_id: Option<String>,
+	/// Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.
+	#[serde(default = "default_subagent_progress_payload_depth")]
+	pub depth: i64,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub assignment: Option<String>,
 	#[serde(rename = "sessionFile", default, skip_serializing_if = "Option::is_none")]
@@ -4170,6 +4188,12 @@ pub struct SubagentProgressPayload {
 pub struct SubagentEventPayload {
 	pub id: String,
 	pub event: OrUnknown<RpcAgentEvent>,
+	/// Id of the subagent that spawned this one; null when the root session spawned it.
+	#[serde(rename = "parentId", default = "default_subagent_event_payload_parent_id")]
+	pub parent_id: Option<String>,
+	/// Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.
+	#[serde(default = "default_subagent_event_payload_depth")]
+	pub depth: i64,
 }
 
 /// A subagent started or ended; sent at subscription level "progress" or "events".
@@ -5948,11 +5972,43 @@ fn default_token_usage_reasoning() -> i64 {
 	serde_json::from_str("0").expect("valid wire default")
 }
 
+fn default_subagent_snapshot_parent_id() -> Option<String> {
+	serde_json::from_str("null").expect("valid wire default")
+}
+
+fn default_subagent_snapshot_depth() -> i64 {
+	serde_json::from_str("0").expect("valid wire default")
+}
+
 fn default_auto_retry_end_event_retry_errors() -> Vec<Map<String, Value>> {
 	serde_json::from_str("[]").expect("valid wire default")
 }
 
 fn default_queue_update_event_live_steered() -> i64 {
+	serde_json::from_str("0").expect("valid wire default")
+}
+
+fn default_subagent_lifecycle_payload_parent_id() -> Option<String> {
+	serde_json::from_str("null").expect("valid wire default")
+}
+
+fn default_subagent_lifecycle_payload_depth() -> i64 {
+	serde_json::from_str("0").expect("valid wire default")
+}
+
+fn default_subagent_progress_payload_parent_id() -> Option<String> {
+	serde_json::from_str("null").expect("valid wire default")
+}
+
+fn default_subagent_progress_payload_depth() -> i64 {
+	serde_json::from_str("0").expect("valid wire default")
+}
+
+fn default_subagent_event_payload_parent_id() -> Option<String> {
+	serde_json::from_str("null").expect("valid wire default")
+}
+
+fn default_subagent_event_payload_depth() -> i64 {
 	serde_json::from_str("0").expect("valid wire default")
 }
 

@@ -114,6 +114,10 @@ import {
 	type AgentDefinition,
 	MAX_OUTPUT_BYTES,
 	MAX_OUTPUT_LINES,
+	type SubagentEventPayload,
+	type SubagentLifecyclePayload,
+	type SubagentLineage,
+	type SubagentProgressPayload,
 	TASK_SUBAGENT_EVENT_CHANNEL,
 	TASK_SUBAGENT_LIFECYCLE_CHANNEL,
 	TASK_SUBAGENT_PROGRESS_CHANNEL,
@@ -1228,6 +1232,8 @@ interface RunMonitorArgs {
 	eventBus?: EventBus;
 	subagentEventBus?: EventBus;
 	parentToolCallId?: string;
+	/** Spawn-tree position stamped on every lifecycle/progress/event frame of this run. */
+	lineage: SubagentLineage;
 	detached?: boolean;
 	sessionFile?: string;
 	/** Soft assistant-request budget; 0 disables the guard. */
@@ -1249,6 +1255,8 @@ interface RunMonitorArgs {
  */
 interface SubagentRunMonitor {
 	readonly progress: AgentProgress;
+	/** Spawn-tree position of the monitored subagent ({@link RunMonitorArgs.lineage}). */
+	readonly lineage: SubagentLineage;
 	/** Fires when the run was asked to stop (caller signal, timeout, budget, terminate). */
 	readonly abortSignal: AbortSignal;
 	readonly accumulatedUsage: Usage;
@@ -1612,11 +1620,13 @@ function createSubagentRunMonitor(args: RunMonitorArgs): SubagentRunMonitor {
 			agentSource: agent.source,
 			task,
 			parentToolCallId: args.parentToolCallId,
+			parentId: args.lineage.parentId,
+			depth: args.lineage.depth,
 			detached: args.detached,
 			assignment,
 			progress: { ...progress },
 			sessionFile: args.sessionFile,
-		};
+		} satisfies SubagentProgressPayload;
 		emitSubagentFrame(args.eventBus, args.subagentEventBus, TASK_SUBAGENT_PROGRESS_CHANNEL, progressPayload);
 		lastProgressEmitMs = Date.now();
 	};
@@ -1721,7 +1731,12 @@ function createSubagentRunMonitor(args: RunMonitorArgs): SubagentRunMonitor {
 	};
 
 	const emitSubagentEvent = (event: AgentSessionEvent) => {
-		const payload = { id, event };
+		const payload = {
+			id,
+			parentId: args.lineage.parentId,
+			depth: args.lineage.depth,
+			event,
+		} satisfies SubagentEventPayload;
 		emitSubagentFrame(args.eventBus, args.subagentEventBus, TASK_SUBAGENT_EVENT_CHANNEL, payload);
 	};
 
@@ -2280,6 +2295,7 @@ function createSubagentRunMonitor(args: RunMonitorArgs): SubagentRunMonitor {
 
 	return {
 		progress,
+		lineage: args.lineage,
 		abortSignal,
 		accumulatedUsage,
 		hasUsage: () => hasUsage,
@@ -2968,13 +2984,15 @@ async function finalizeRunResult(args: FinalizeRunArgs): Promise<SingleResult> {
 		id,
 		agent: agent.name,
 		parentToolCallId: args.parentToolCallId,
+		parentId: args.monitor.lineage.parentId,
+		depth: args.monitor.lineage.depth,
 		detached: args.detached,
 		agentSource: agent.source,
 		description: progress.description,
 		status: progress.status as "completed" | "failed" | "aborted",
 		sessionFile: args.sessionFile,
 		index,
-	};
+	} satisfies SubagentLifecyclePayload;
 	emitSubagentFrame(args.eventBus, args.subagentEventBus, TASK_SUBAGENT_LIFECYCLE_CHANNEL, settledPayload);
 
 	return {
@@ -3015,6 +3033,39 @@ async function finalizeRunResult(args: FinalizeRunArgs): Promise<SingleResult> {
 	};
 }
 
+/**
+ * Lineage of a subagent spawned by the agent at task depth `spawnerTaskDepth`
+ * (0 = the root session) with registry id `spawnerAgentId`. Children of the
+ * root session get `{ parentId: null, depth: 0 }`.
+ */
+export function spawnedSubagentLineage(spawnerTaskDepth: number, spawnerAgentId: string | undefined): SubagentLineage {
+	const depth = Math.max(0, spawnerTaskDepth);
+	return { parentId: depth > 0 ? (spawnerAgentId ?? null) : null, depth };
+}
+
+function isSubagentAncestor(registry: AgentRegistry, id: string | undefined): id is string {
+	return id !== undefined && id !== MAIN_AGENT_ID && registry.get(id)?.kind !== "main";
+}
+
+/**
+ * Lineage of an already-registered subagent, walked from its registry parent
+ * chain. Used by turns that continue an existing agent (follow-ups, cold
+ * revives), where no spawner context is at hand.
+ */
+export function resolveSubagentLineage(id: string, registry: AgentRegistry = AgentRegistry.global()): SubagentLineage {
+	const parentId = registry.get(id)?.parentId;
+	if (!isSubagentAncestor(registry, parentId)) return { parentId: null, depth: 0 };
+	let depth = 0;
+	let ancestor: string | undefined = parentId;
+	const seen = new Set<string>([id]);
+	while (isSubagentAncestor(registry, ancestor) && !seen.has(ancestor)) {
+		seen.add(ancestor);
+		depth++;
+		ancestor = registry.get(ancestor)?.parentId;
+	}
+	return { parentId, depth };
+}
+
 /** Inputs for {@link attachIrcWakeTurnMonitor}. */
 export interface IrcWakeTurnMonitorOptions {
 	/** Registry id of the kept-alive subagent whose autonomous IRC wake turns are monitored. */
@@ -3028,6 +3079,11 @@ export interface IrcWakeTurnMonitorOptions {
 	eventBus?: EventBus;
 	subagentEventBus?: EventBus;
 	parentToolCallId?: string;
+	/**
+	 * Spawn-tree position of the kept-alive subagent; see {@link SubagentLineage}.
+	 * Defaults to the lineage resolved from the registry parent chain of {@link id}.
+	 */
+	lineage?: SubagentLineage;
 	/** Fallback session file when the registry ref carries none. */
 	sessionFile?: string;
 	maxRuntimeMs?: number;
@@ -3224,6 +3280,7 @@ export function attachIrcWakeTurnMonitor(session: AgentSession, options: IrcWake
 	const { id, agent } = options;
 	const index = options.index ?? 0;
 	const maxRuntimeMs = options.maxRuntimeMs ?? 0;
+	const lineage = options.lineage ?? resolveSubagentLineage(id);
 	session.setIrcWakeTurnObserver(records => {
 		// Autonomous IRC wake turns reuse the session's YieldTool just like
 		// runSubagentFollowUpTurn; clear the prior run's incremental-section flag
@@ -3311,6 +3368,7 @@ export function attachIrcWakeTurnMonitor(session: AgentSession, options: IrcWake
 			eventBus: options.eventBus,
 			subagentEventBus: options.subagentEventBus,
 			parentToolCallId: options.parentToolCallId,
+			lineage,
 			detached: true,
 			sessionFile,
 			softRequestBudget: 0,
@@ -3329,13 +3387,15 @@ export function attachIrcWakeTurnMonitor(session: AgentSession, options: IrcWake
 			id,
 			agent: agent.name,
 			parentToolCallId: options.parentToolCallId,
+			parentId: lineage.parentId,
+			depth: lineage.depth,
 			detached: true,
 			agentSource: agent.source,
 			description: options.description,
 			status: "started",
 			sessionFile,
 			index,
-		} as const;
+		} as const satisfies SubagentLifecyclePayload;
 		emitSubagentFrame(options.eventBus, options.subagentEventBus, TASK_SUBAGENT_LIFECYCLE_CHANNEL, startedPayload);
 
 		turnMonitor.setActiveSession(session);
@@ -3698,6 +3758,7 @@ export interface FollowUpTurnOptions {
 export async function runSubagentFollowUpTurn(options: FollowUpTurnOptions): Promise<SingleResult> {
 	const { id, agent, message, signal } = options;
 	const index = options.index ?? 0;
+	const lineage = resolveSubagentLineage(id);
 	const startTime = Date.now();
 	let session = await AgentLifecycleManager.global().ensureLive(id);
 	// Acquire turn ownership before mutating the shared yield contract: installing
@@ -3761,6 +3822,7 @@ export async function runSubagentFollowUpTurn(options: FollowUpTurnOptions): Pro
 		eventBus: options.eventBus,
 		subagentEventBus: options.subagentEventBus,
 		parentToolCallId: options.parentToolCallId,
+		lineage,
 		detached: true,
 		sessionFile,
 		softRequestBudget: 0,
@@ -3773,13 +3835,15 @@ export async function runSubagentFollowUpTurn(options: FollowUpTurnOptions): Pro
 		id,
 		agent: agent.name,
 		parentToolCallId: options.parentToolCallId,
+		parentId: lineage.parentId,
+		depth: lineage.depth,
 		detached: true,
 		agentSource: agent.source,
 		description: options.description,
 		status: "started",
 		sessionFile,
 		index,
-	} as const;
+	} as const satisfies SubagentLifecyclePayload;
 	emitSubagentFrame(options.eventBus, options.subagentEventBus, TASK_SUBAGENT_LIFECYCLE_CHANNEL, startedPayload);
 
 	monitor.setActiveSession(session);
@@ -4236,6 +4300,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 	const softRequestBudgetNotice = cfgTaskSoftRequestBudgetNotice.get(settings);
 	const parentDepth = options.taskDepth ?? 0;
 	const childDepth = parentDepth + 1;
+	const lineage = spawnedSubagentLineage(parentDepth, options.parentAgentId);
 	const restrictToolNames = options.restrictToolNames === true || preparedSession !== undefined;
 	const atMaxDepth = maxRecursionDepth >= 0 && childDepth >= maxRecursionDepth;
 
@@ -4311,6 +4376,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		eventBus: options.eventBus,
 		subagentEventBus: options.subagentEventBus,
 		parentToolCallId: options.parentToolCallId,
+		lineage,
 		detached: options.detached,
 		sessionFile: subtaskSessionFile,
 		softRequestBudget,
@@ -4332,6 +4398,7 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 		agent,
 		completionProbe,
 		description: options.description,
+		lineage,
 		modelOverride,
 		modelRole,
 		eventBus: options.eventBus,
@@ -4805,13 +4872,15 @@ export async function runSubprocess(options: ExecutorOptions): Promise<SingleRes
 				id,
 				agent: agent.name,
 				parentToolCallId: options.parentToolCallId,
+				parentId: lineage.parentId,
+				depth: lineage.depth,
 				detached: options.detached,
 				agentSource: agent.source,
 				description: options.description,
 				status: "started" as const,
 				sessionFile: subtaskSessionFile,
 				index,
-			};
+			} satisfies SubagentLifecyclePayload;
 			emitSubagentFrame(options.eventBus, options.subagentEventBus, TASK_SUBAGENT_LIFECYCLE_CHANNEL, startedPayload);
 
 			const subagentToolNames = session.getEnabledToolNames();

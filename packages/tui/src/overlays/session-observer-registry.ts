@@ -6,8 +6,19 @@ export const TASK_SUBAGENT_PROGRESS_CHANNEL = "task:subagent:progress";
 /** EventBus channel for subagent lifecycle (start/end) */
 export const TASK_SUBAGENT_LIFECYCLE_CHANNEL = "task:subagent:lifecycle";
 
+/**
+ * Position of a subagent in its root session's spawn tree; every subagent
+ * lifecycle, progress, and event payload carries it.
+ */
+export interface SubagentLineage {
+	/** Registry id of the subagent that spawned this one; `null` when the root session spawned it. */
+	parentId: string | null;
+	/** Number of subagent ancestors: 0 when the root session spawned it, 1 for its children, and so on. */
+	depth: number;
+}
+
 /** Payload emitted on TASK_SUBAGENT_PROGRESS_CHANNEL */
-export interface SubagentProgressPayload {
+export interface SubagentProgressPayload extends SubagentLineage {
 	index: number;
 	agent: string;
 	agentSource: AgentSource;
@@ -21,7 +32,7 @@ export interface SubagentProgressPayload {
 }
 
 /** Payload emitted on TASK_SUBAGENT_LIFECYCLE_CHANNEL */
-export interface SubagentLifecyclePayload {
+export interface SubagentLifecyclePayload extends SubagentLineage {
 	id: string;
 	agent: string;
 	agentSource: AgentSource;

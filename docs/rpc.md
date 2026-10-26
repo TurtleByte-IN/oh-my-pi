@@ -1069,6 +1069,26 @@ Subagent forwarding defaults to `"off"`. `set_subagent_subscription` selects:
 - `"progress"`: lifecycle and progress frames
 - `"events"`: lifecycle, progress, and full subagent event frames
 
+Every `subagent_lifecycle`, `subagent_progress`, and `subagent_event` payload,
+and every `get_subagents` entry, places the subagent in its spawn tree:
+
+- `parentId`: the id of the subagent that spawned it, or `null` when the root
+  session (the one the RPC host drives) spawned it.
+- `depth`: how many subagents sit above it. A subagent the root session spawned
+  has `depth: 0`, its children `depth: 1`, and so on.
+
+A subagent's own tool calls reach the host only as `subagent_event` frames
+(`event.type` `tool_execution_start`, `tool_execution_update`,
+`tool_execution_end`), so they carry the same `parentId` and `depth`. Frames of
+the root session itself are not subagent frames and carry neither field.
+Servers before RPC contract `1.2.0` omit both fields; read a missing field as
+`parentId: null` and `depth: 0`.
+
+```json
+{ "type": "subagent_lifecycle", "payload": { "id": "Scout", "parentId": null, "depth": 0, "agent": "scout", "agentSource": "bundled", "status": "started", "index": 0 } }
+{ "type": "subagent_event", "payload": { "id": "Scout.Reader", "parentId": "Scout", "depth": 1, "event": { "type": "tool_execution_start", "toolCallId": "call_1", "toolName": "read", "args": { "path": "README.md" } } } }
+```
+
 `get_subagents` returns the registry snapshot sorted by subagent index and id.
 `get_subagent_messages` selects a transcript by `subagentId` or a registered
 `sessionFile` (`subagentId` takes precedence); arbitrary file paths are rejected.

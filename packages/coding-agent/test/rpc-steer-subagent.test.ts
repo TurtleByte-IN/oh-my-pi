@@ -57,6 +57,8 @@ describe("handleRpcSteerSubagent", () => {
 			agentSource: "bundled",
 			status,
 			sessionFile: ownSessionFile,
+			parentId: null,
+			depth: 0,
 		} satisfies SubagentLifecyclePayload);
 	}
 

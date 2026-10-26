@@ -698,6 +698,10 @@ export interface SubagentSnapshot {
 	/** Raw `AgentProgress` record. */
 	progress?: Record<string, unknown>;
 	parentToolCallId?: string;
+	/** Id of the subagent that spawned this one; null when the root session spawned it. */
+	parentId?: string | null;
+	/** Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on. */
+	depth?: number;
 }
 
 /** Incremental subagent transcript read. */
@@ -1065,6 +1069,10 @@ export interface SubagentLifecyclePayload {
 	description?: string;
 	sessionFile?: string;
 	parentToolCallId?: string;
+	/** Id of the subagent that spawned this one; null when the root session spawned it. */
+	parentId?: string | null;
+	/** Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on. */
+	depth?: number;
 	/** The subagent runs as a detached background job. */
 	detached?: boolean;
 }
@@ -1077,6 +1085,10 @@ export interface SubagentProgressPayload {
 	/** Raw `AgentProgress` record. */
 	progress: Record<string, unknown>;
 	parentToolCallId?: string;
+	/** Id of the subagent that spawned this one; null when the root session spawned it. */
+	parentId?: string | null;
+	/** Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on. */
+	depth?: number;
 	assignment?: string;
 	sessionFile?: string;
 	detached?: boolean;
@@ -1085,6 +1097,10 @@ export interface SubagentProgressPayload {
 export interface SubagentEventPayload {
 	id: string;
 	event: RpcAgentEvent;
+	/** Id of the subagent that spawned this one; null when the root session spawned it. */
+	parentId?: string | null;
+	/** Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on. */
+	depth?: number;
 }
 
 /** A subagent started or ended; sent at subscription level "progress" or "events". */

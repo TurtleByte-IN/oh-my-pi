@@ -10,7 +10,7 @@ import type { Settings } from "../config/settings";
 import { MCPManager } from "../mcp/manager";
 import { initializeExtensions } from "../modes/runtime-init";
 import type { PersistedSubagentReviverFactory } from "../registry/agent-lifecycle";
-import { AgentRegistry, MAIN_AGENT_ID } from "../registry/agent-registry";
+import { AgentRegistry } from "../registry/agent-registry";
 import { createAgentSession } from "../sdk";
 import type { AgentSession } from "../session/agent-session";
 import { installRetryFallbackRole } from "../session/retry-fallback-chains";
@@ -28,6 +28,7 @@ import {
 	createMCPProxyTools,
 	createSubagentSettings,
 	followMCPTools,
+	resolveSubagentLineage,
 	subagentRetryFallbackRole,
 } from "./executor";
 import { isCompletionProbeEnabled } from "./completion-probe";
@@ -134,14 +135,8 @@ export function createPersistedSubagentReviverFactory(
 		// taskDepth drives real capability gating (task-spawn allowance, memory
 		// startup, …); derive it from the persisted parent chain rather than
 		// assuming a fixed level.
-		let taskDepth = 1;
-		let parentId = ref.parentId;
-		const seen = new Set<string>();
-		while (parentId && parentId !== MAIN_AGENT_ID && !seen.has(parentId)) {
-			seen.add(parentId);
-			taskDepth++;
-			parentId = registry.get(parentId)?.parentId;
-		}
+		const lineage = resolveSubagentLineage(ref.id, registry);
+		const taskDepth = lineage.depth + 1;
 		return async expectedRef => {
 			// Re-open fresh on every revive: park closes the writer, so this takes
 			// the single-writer lock cleanly and restores the full message history.
@@ -323,6 +318,7 @@ export function createPersistedSubagentReviverFactory(
 				id: ref.id,
 				agent: persistedAgentDefinition(ref.displayName, init),
 				completionProbe: isCompletionProbeEnabled(ctx.settings, taskDepth - 1),
+				lineage,
 				eventBus: ctx.eventBus,
 				subagentEventBus: ctx.subagentEventBus,
 				sessionFile,

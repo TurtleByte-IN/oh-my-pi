@@ -6,6 +6,7 @@
  * omits them.
  */
 import { absentAs, doc, type WireDefs } from "./dsl";
+import { SUBAGENT_LINEAGE } from "./frames";
 
 const JSON_OBJECT = "Record<string, unknown>";
 
@@ -269,6 +270,7 @@ export const stateDefs = {
 		lastUpdate: "number.integer",
 		"progress?": doc(JSON_OBJECT, "Raw `AgentProgress` record."),
 		"parentToolCallId?": "string",
+		...SUBAGENT_LINEAGE,
 	},
 	SubagentMessages: doc(
 		{

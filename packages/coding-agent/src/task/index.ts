@@ -134,7 +134,13 @@ export { discoverCommands, expandCommand, getCommand } from "./commands";
 export { discoverAgents, getAgent } from "./discovery";
 export { AgentOutputManager } from "./output-manager";
 export * from "./read-only-policy";
-export type { AgentDefinition, SubagentEventPayload, SubagentLifecyclePayload, SubagentProgressPayload } from "./types";
+export type {
+	AgentDefinition,
+	SubagentEventPayload,
+	SubagentLifecyclePayload,
+	SubagentLineage,
+	SubagentProgressPayload,
+} from "./types";
 export type { AgentProgress, SingleResult, TaskParams, TaskToolDetails } from "@oh-my-pi/pi-tui/tools/task";
 export * from "./result-summary";
 export {

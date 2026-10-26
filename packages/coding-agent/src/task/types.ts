@@ -4,9 +4,11 @@ export {
 	TASK_SUBAGENT_LIFECYCLE_CHANNEL,
 } from "@oh-my-pi/pi-tui/overlays/session-observer-registry";
 export type {
+	SubagentLineage,
 	SubagentProgressPayload,
 	SubagentLifecyclePayload,
 } from "@oh-my-pi/pi-tui/overlays/session-observer-registry";
+import type { SubagentLineage } from "@oh-my-pi/pi-tui/overlays/session-observer-registry";
 import { type BaseType, type FluentType, type } from "@oh-my-pi/omptype";
 import { $env } from "@oh-my-pi/pi-utils";
 
@@ -35,7 +37,7 @@ export const MAX_OUTPUT_LINES = parseNumber($env.PI_TASK_MAX_OUTPUT_LINES, 5000)
 export const TASK_SUBAGENT_EVENT_CHANNEL = "task:subagent:event";
 
 /** Payload emitted on TASK_SUBAGENT_EVENT_CHANNEL */
-export interface SubagentEventPayload {
+export interface SubagentEventPayload extends SubagentLineage {
 	id: string;
 	event: AgentSessionEvent;
 }

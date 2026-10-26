@@ -56,6 +56,8 @@ describe("handleRpcCancelSubagent", () => {
 			agentSource: "bundled",
 			status,
 			sessionFile,
+			parentId: null,
+			depth: 0,
 		} satisfies SubagentLifecyclePayload);
 	}
 
