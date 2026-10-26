@@ -67,7 +67,7 @@ jobs:
            shell: bash
            run: |
               set -euo pipefail
-              summary() { printf '%s\n' "$@" >> "$GITHUB_STEP_SUMMARY"; }
+              summary() { printf '%s\n' "$@" | tee -a "$GITHUB_STEP_SUMMARY"; }
               stable='^v[0-9]+\.[0-9]+\.[0-9]+$'
               # Read-only upstream: the push URL is unusable.
               git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
@@ -184,7 +184,7 @@ jobs:
               CONTRACT: ${{ steps.contract.outcome }}
            run: |
               set -euo pipefail
-              summary() { printf '%s\n' "$@" >> "$GITHUB_STEP_SUMMARY"; }
+              summary() { printf '%s\n' "$@" | tee -a "$GITHUB_STEP_SUMMARY"; }
               run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
               main_sha="$(git rev-parse origin/main)"
               count="$(git rev-list --count "$main_sha..$SHA")"
