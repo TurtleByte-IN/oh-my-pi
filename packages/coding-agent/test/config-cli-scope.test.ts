@@ -198,6 +198,71 @@ describe("config set/reset --scope project", () => {
 		expect(fs.existsSync(projectConfigFile())).toBe(false);
 	});
 
+	/** Runs a project-scope `set` expected to fail; returns what it printed to stderr. */
+	async function rejectedProjectSet(): Promise<string> {
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "log").mockImplementation(() => {});
+		vi.spyOn(process, "exit").mockImplementation((() => {
+			throw new Error("process.exit");
+		}) as typeof process.exit);
+		await expect(
+			runConfigCommand({
+				action: "set",
+				key: "compaction.enabled",
+				value: "false",
+				flags: { json: true, scope: "project", cwd: projectDir.path() },
+			}),
+		).rejects.toThrow("process.exit");
+		return errorSpy.mock.calls.map(call => String(call[0])).join("\n");
+	}
+
+	it("refuses to follow a symlinked .omp directory out of the project", async () => {
+		const outside = path.join(otherDir.path(), "elsewhere");
+		fs.mkdirSync(outside);
+		fs.symlinkSync(outside, path.join(projectDir.path(), ".omp"), "dir");
+
+		expect(await rejectedProjectSet()).toContain("Refusing to write project settings");
+		expect(fs.existsSync(path.join(outside, "config.yml"))).toBe(false);
+	});
+
+	it("refuses to follow a symlinked .omp/config.yml out of the project", async () => {
+		const outside = path.join(otherDir.path(), "victim.yml");
+		await Bun.write(outside, "keep: me\n");
+		fs.mkdirSync(path.join(projectDir.path(), ".omp"));
+		fs.symlinkSync(outside, projectConfigFile());
+
+		expect(await rejectedProjectSet()).toContain("Refusing to write project settings");
+		expect(await Bun.file(outside).text()).toBe("keep: me\n");
+	});
+
+	it("refuses a .omp/config.yml linked to the global config", async () => {
+		const globalConfig = path.join(agentDir.path(), "config.yml");
+		await Bun.write(globalConfig, "theme:\n  dark: titanium\n");
+		fs.mkdirSync(path.join(projectDir.path(), ".omp"));
+		fs.symlinkSync(globalConfig, projectConfigFile());
+
+		expect(await rejectedProjectSet()).toContain("Refusing to write project settings");
+		expect(await Bun.file(globalConfig).text()).toBe("theme:\n  dark: titanium\n");
+	});
+
+	it("still writes through a symlink that stays inside the project", async () => {
+		const real = path.join(projectDir.path(), "omp-settings");
+		fs.mkdirSync(real);
+		fs.symlinkSync(real, path.join(projectDir.path(), ".omp"), "dir");
+		vi.spyOn(console, "log").mockImplementation(() => {});
+
+		await runConfigCommand({
+			action: "set",
+			key: "compaction.enabled",
+			value: "false",
+			flags: { json: true, scope: "project", cwd: projectDir.path() },
+		});
+
+		expect(YAML.parse(await Bun.file(path.join(real, "config.yml")).text())).toEqual({
+			compaction: { enabled: false },
+		});
+	});
+
 	it("refuses the project scope in the home directory, where project settings are not read", async () => {
 		const result = await runCli(
 			["config", "set", "compaction.enabled", "false", "--scope", "project", "--cwd", projectDir.path()],
