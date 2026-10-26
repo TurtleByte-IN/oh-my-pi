@@ -36,7 +36,7 @@ function compareJson(a: unknown, b: unknown): number {
 	return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function sortedData(value: unknown): unknown {
+export function sortedData(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(sortedData);
 	if (value === null || typeof value !== "object") return value;
 	const record = value as Record<string, unknown>;
@@ -51,7 +51,7 @@ function sortedSet(value: unknown): unknown {
 	return Array.isArray(value) ? value.map(sortedData).sort(compareJson) : sortedData(value);
 }
 
-function schemaMap(map: Record<string, unknown>): Record<string, unknown> {
+export function schemaMap(map: Record<string, unknown>): Record<string, unknown> {
 	return Object.fromEntries(
 		Object.keys(map)
 			.sort()
@@ -135,10 +135,12 @@ export function rpcContractDrift(bundle: RpcWireBundle): string | null {
 /**
  * Message when `head` does not extend `base` unchanged (an entry recorded on
  * the base branch was edited, removed, or reordered), or `null` when it does.
+ * `historyPath` names the history file in the message (the CLI contract keeps its own).
  */
 export function rpcContractHistoryViolation(
 	base: readonly RpcContractRelease[],
 	head: readonly RpcContractRelease[],
+	historyPath: string = RPC_CONTRACT_HISTORY_PATH,
 ): string | null {
 	for (let i = 0; i < base.length; i++) {
 		const recorded = base[i];
@@ -146,7 +148,7 @@ export function rpcContractHistoryViolation(
 		if (current?.version === recorded.version && current.schemaHash === recorded.schemaHash) continue;
 		const found = current ? `{ version: ${current.version}, schemaHash: ${current.schemaHash} }` : "nothing";
 		return [
-			`${RPC_CONTRACT_HISTORY_PATH} must keep every entry already on the base branch unchanged and in order.`,
+			`${historyPath} must keep every entry already on the base branch unchanged and in order.`,
 			`Entry ${i} is { version: ${recorded.version}, schemaHash: ${recorded.schemaHash} } on the base branch but ${found} here.`,
 			"Restore it and append a new release instead (see docs/rpc-contract.md).",
 		].join("\n");

@@ -40,7 +40,7 @@ The canonical global file is YAML at `config.yml`; `config.yaml` is accepted as 
 
 ## Reading and writing settings
 
-Use the interactive `/settings` panel inside a session, or the `omp config` command from a shell. The CLI reads effective values including setting environment variables. The panel shows and edits merged settings-layer values, not environment-supplied values; descriptions note active env overrides so env credentials are never pre-filled or persisted. Ordinary persistent writes land in the **global** file; model-selector role changes are the exception when `modelRoleStorage: project` (see [Where writes go](#where-writes-go)).
+Use the interactive `/settings` panel inside a session, or the `omp config` command from a shell. The CLI reads effective values including setting environment variables. The panel shows and edits merged settings-layer values, not environment-supplied values; descriptions note active env overrides so env credentials are never pre-filled or persisted. Ordinary persistent writes land in the **global** file; `omp config set --scope project` and model-selector role changes with `modelRoleStorage: project` are the exceptions (see [Where writes go](#where-writes-go)).
 
 ```bash
 omp config list                 # all settings with current effective values
@@ -50,6 +50,9 @@ omp config get theme.dark --json
 omp config set compaction.enabled false
 omp config set defaultThinkingLevel medium
 omp config reset steeringMode   # remove a key from config.yml so its default applies
+omp config set compaction.enabled false --scope project              # write ./.omp/config.yml
+omp config list --json --cwd ~/src/app                               # read another project's layer
+omp config reset compaction.enabled --scope project --cwd ~/src/app  # remove it from that project file
 omp config path                 # print the active agent directory
 ```
 
@@ -65,14 +68,16 @@ This only controls the startup splash animation. It does not rerun setup or chan
 
 | Command                        | Effect                                                                                                                                                                                                                                                                                            |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `omp config list`              | Print every setting grouped by tab, with its current value and type. `--json` emits an object keyed by setting path with `{ value, type, description }`. Configured credential fields are masked as `********` in human output; in JSON their `value` is omitted and `redacted: true` is emitted. |
+| `omp config list`              | Print every setting grouped by tab, with its current value and type. `--json` emits an object keyed by setting path with `{ value, type, description, source }`, where `source` is the layer supplying the effective value: `default`, `global`, `project`, `overlay` (`--config` / `PI_CONFIG_FILES`), `runtime`, or `env`. Configured credential fields are masked as `********` in human output; in JSON their `value` is omitted and `redacted: true` is emitted. |
 | `omp config get <key>`         | Print the effective value of one key. Unknown keys exit non-zero. `--json` emits `{ key, value, type, description }`. This is an explicit single-key request, so credential values are returned unmasked.                                                                                         |
-| `omp config set <key> <value>` | Parse `<value>` against the key's schema type, write it to the global main YAML file, and print the value written. When another source still supplies the effective value, it says which instead (`--json`: `overriddenBy` is the env var name, or `project`, `overlay`, or `runtime`; `fallbackEnv` names a fallback env var used while the saved value is blank). |
-| `omp config reset <key>`       | Delete the global key, allowing another configured layer or the schema default to apply. Prints the resulting effective value, masking non-empty credentials as `********`; JSON omits a credential's `value` and emits `{ key, redacted: true }`. |
+| `omp config set <key> <value>` | Parse `<value>` against the key's schema type, write it to the main YAML file of `--scope` (`global`, the default, or `project`), and print the value written. When a higher source still supplies the effective value, it says which instead (`--json` emits `{ key, scope, value }`; `overriddenBy` is the env var name, or `project`, `overlay`, or `runtime`; `fallbackEnv` names a fallback env var used while the saved value is blank). Writing a credential with `--scope project` warns, because project files are often committed. |
+| `omp config reset <key>`       | Delete the key from the `--scope` file (`global` by default, or `project`), allowing another configured layer or the schema default to apply. Prints the resulting effective value, masking non-empty credentials as `********`; JSON emits `{ key, scope, value }`, or `{ key, scope, redacted: true }` for a credential. |
 | `omp config path`              | Print the active agent directory (honors `PI_CODING_AGENT_DIR`).                                                                                                                                                                                                                                  |
 | `omp config init-xdg`          | On Linux and macOS, create the `omp` directories under the effective XDG data, state, and cache homes. It does not move existing files or set the XDG environment variables. Other platforms exit non-zero.                                                                                       |
 
-`omp config` with no subcommand lists settings. `--help` or `-h` displays command help. The `--json` flag is accepted by `list`, `get`, `set`, and `reset`.
+`omp config` with no subcommand lists settings. `--help` or `-h` displays command help. The `--json` flag is accepted by `list`, `get`, `set`, and `reset`. `--cwd <path>` selects the project whose layer every subcommand reads and `--scope project` writes (default: the current directory). `--scope` is accepted by `set` and `reset` only.
+
+The `--json` output of `list`, `set`, and `reset` is part of the versioned CLI JSON contract; see [RPC contract](./rpc-contract.md#cli-json-contract).
 
 ### Value parsing
 
@@ -93,7 +98,7 @@ Setting-specific normalization and validation still apply after parsing. For exa
 
 ### Where writes go
 
-`omp config set`, `omp config reset`, `/settings`, and persistent runtime settings changes write the global main YAML file under the active agent directory. Runtime-only overrides are not saved. Settings commands do not write arbitrary keys to `<cwd>/.omp/config.yml`. Model-role assignment or clearing with `modelRoleStorage: project` updates only the affected roles there; missing project roles fall back to global roles. To create another project-local override, edit the project file directly (see [Project-local config](#project-local-config)).
+`omp config set`, `omp config reset`, `/settings`, and persistent runtime settings changes write the global main YAML file under the active agent directory. Runtime-only overrides are not saved. `omp config set --scope project` and `omp config reset --scope project` write `<cwd>/.omp/config.yml` (`--cwd`, or the current directory) through the same parsing and validation; they never touch other project settings files such as `.omp/settings.json` or `.claude/settings.json`, so a key one of those supplies keeps applying after a project reset. The project scope is refused in the home directory, where project settings are not read. Model-role assignment or clearing with `modelRoleStorage: project` updates only the affected roles in the same file; missing project roles fall back to global roles.
 
 Saves are debounced and re-read the file under a lock. Disjoint external edits are preserved. If an external writer changed the same global setting or model role after a local change was staged, the stale local change is skipped with a warning rather than overwriting the newer file value.
 
@@ -1083,7 +1088,7 @@ Arrays replace; they do not append. If a project sets `disabledProviders`, `enab
 
 ### `omp config set` changed the wrong file
 
-`omp config set` and `omp config reset` write the main global YAML file (`config.yml`, or the existing compatible `config.yaml`) under the active agent/profile directory. Run `omp config path` to print that directory and check `--profile`, `OMP_PROFILE`, and `PI_CODING_AGENT_DIR`. For project-local keys, edit `<repo>/.omp/config.yml` directly.
+`omp config set` and `omp config reset` write the main global YAML file (`config.yml`, or the existing compatible `config.yaml`) under the active agent/profile directory unless `--scope project` is given. Run `omp config path` to print that directory and check `--profile`, `OMP_PROFILE`, and `PI_CODING_AGENT_DIR`. For project-local keys, pass `--scope project` (and `--cwd <repo>` from outside the repository); `omp config list --json` shows each key's `source` layer.
 
 ### A `--config` overlay fails at startup
 

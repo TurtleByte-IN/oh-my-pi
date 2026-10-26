@@ -111,7 +111,8 @@ function parseType(schema: JsonSchema, where: string): WireType {
 	throw new Error(`${where}: unsupported schema ${JSON.stringify(schema)}`);
 }
 
-function parseDef(name: string, schema: JsonSchema): WireDef {
+/** Parses one `$defs` entry into the emitter model; throws on constructs no emitter supports. */
+export function parseDef(name: string, schema: JsonSchema): WireDef {
 	const doc = typeof schema.description === "string" ? schema.description : undefined;
 	const properties = schema.properties as Record<string, JsonSchema> | undefined;
 	if (schema.type === "object" && properties && Object.keys(properties).length > 0) {

@@ -5,16 +5,21 @@
  * - `src/modes/rpc/wire/rpc-wire.schema.json`: the language-neutral bundle
  * - `src/modes/rpc/wire/rpc-wire.generated.ts`: TypeScript wire types
  * - `packages/rpc-contract`: the bundle, the TypeScript types, and the contract
- *   version and shape hash (`contract.json`, `src/contract.generated.ts`)
+ *   version and shape hash (`contract.json`, `src/contract.generated.ts`), plus
+ *   the CLI JSON contract from `src/cli/contract` (`cli-contract.schema.json`,
+ *   `cli-contract.json`, `src/cli.generated.ts`)
  * - `sdk/python/omp-rpc/src/omp_rpc/_wire.py`: Python types, parsers, and client methods
  * - `sdk/rust/omp-rpc/src/wire.rs`: Rust serde types, frame decoders, and `Command` impls
  * - `sdk/go/omp-rpc/wire.go`: Go types, frame decoders, and `Commands` methods
  *
- * Exits non-zero after writing when the wire shape no longer matches the
- * recorded contract version (`test/rpc-wire/contract.test.ts` enforces the same).
+ * Exits non-zero after writing when the wire shape or the CLI JSON shape no
+ * longer matches its recorded contract version (`test/rpc-wire/contract.test.ts`
+ * and `test/rpc-wire/cli-contract.test.ts` enforce the same).
  */
 import * as path from "node:path";
+import { buildCliContractBundle } from "../../src/cli/contract";
 import { buildRpcWireBundle } from "../../src/modes/rpc/wire";
+import { cliContractDrift, emitCliContractJson, emitCliContractModule } from "./cli-contract";
 import { emitContractJson, emitContractModule, rpcContractDrift } from "./contract";
 import { emitGo } from "./go";
 import { buildWireModel } from "./model";
@@ -33,6 +38,7 @@ export function generateRpcArtifacts(): Map<string, string> {
 	const model = buildWireModel(bundle);
 	const schema = `${JSON.stringify(bundle, null, "\t")}\n`;
 	const types = emitTypeScript(model);
+	const cliBundle = buildCliContractBundle();
 	return new Map([
 		[path.join(WIRE_DIR, "rpc-wire.schema.json"), schema],
 		[path.join(WIRE_DIR, "rpc-wire.generated.ts"), types],
@@ -40,6 +46,9 @@ export function generateRpcArtifacts(): Map<string, string> {
 		[path.join(CONTRACT_DIR, "contract.json"), emitContractJson(bundle)],
 		[path.join(CONTRACT_DIR, "src/wire.generated.ts"), types],
 		[path.join(CONTRACT_DIR, "src/contract.generated.ts"), emitContractModule(bundle)],
+		[path.join(CONTRACT_DIR, "cli-contract.schema.json"), `${JSON.stringify(cliBundle, null, "\t")}\n`],
+		[path.join(CONTRACT_DIR, "cli-contract.json"), emitCliContractJson(cliBundle)],
+		[path.join(CONTRACT_DIR, "src/cli.generated.ts"), emitCliContractModule(cliBundle)],
 		[path.join(SDK_DIR, "python/omp-rpc/src/omp_rpc/_wire.py"), emitPython(model)],
 		[path.join(SDK_DIR, "rust/omp-rpc/src/wire.rs"), emitRust(model)],
 		[path.join(SDK_DIR, "go/omp-rpc/wire.go"), emitGo(model)],
@@ -51,8 +60,8 @@ if (import.meta.main) {
 		await Bun.write(file, contents);
 		console.log(`wrote ${path.relative(process.cwd(), file)}`);
 	}
-	const drift = rpcContractDrift(buildRpcWireBundle());
-	if (drift) {
+	for (const drift of [rpcContractDrift(buildRpcWireBundle()), cliContractDrift(buildCliContractBundle())]) {
+		if (!drift) continue;
 		console.error(drift);
 		process.exitCode = 1;
 	}

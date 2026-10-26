@@ -739,6 +739,27 @@ export class Setting<T, Id extends string = string> extends Derived<T> {
 	}
 
 	/**
+	 * Persists `value` to the project layer of `scope`'s working directory (`<cwd>/.omp/config.yml`);
+	 * `undefined` removes the key ({@link unsetProject}).
+	 *
+	 * @throws Error when the value does not fit the definition (see {@link assertWritable}), or when
+	 * the working directory is the home directory, where project settings are not read.
+	 */
+	setProject(scope: ScopeLike, value: T): void {
+		settingsOf(scope).writeProjectValue(this, value === undefined ? undefined : this.#normalize(value));
+	}
+
+	/**
+	 * Removes the key from `<cwd>/.omp/config.yml`: any other layer, project file, or environment
+	 * variable that configures this setting still applies, otherwise the default.
+	 *
+	 * @throws Error when the working directory is the home directory.
+	 */
+	unsetProject(scope: ScopeLike): void {
+		settingsOf(scope).writeProjectValue(this, undefined);
+	}
+
+	/**
 	 * Persists one entry of this record setting to the global config; `undefined` removes the entry.
 	 * The record's other entries, persisted or supplied by another layer, stay as they are.
 	 *
