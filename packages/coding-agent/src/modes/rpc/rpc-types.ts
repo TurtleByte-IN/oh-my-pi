@@ -17,7 +17,12 @@ import type { FileEntry, SessionEntry, SessionTreeNode } from "../../session/ses
 import type { UsageLimitState } from "../../session/usage-limit";
 import type { AvailableSlashCommandSource } from "../../slash-commands/available-commands";
 import type { AgentProgress } from "@oh-my-pi/pi-tui/tools/task";
-import type { SubagentEventPayload, SubagentLifecyclePayload, SubagentProgressPayload } from "../../task";
+import type {
+	SubagentEventPayload,
+	SubagentLifecyclePayload,
+	SubagentLineage,
+	SubagentProgressPayload,
+} from "../../task";
 import type { TodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
 import type { LogoutAccount } from "@oh-my-pi/pi-tui/overlays/logout-account-selector";
 import type { LivePhase } from "@oh-my-pi/pi-tui/apps/live-visualizer";
@@ -353,7 +358,7 @@ export interface RpcHandoffResult {
 
 export type RpcSubagentSubscriptionLevel = "off" | "progress" | "events";
 
-export interface RpcSubagentSnapshot {
+export interface RpcSubagentSnapshot extends SubagentLineage {
 	id: string;
 	index: number;
 	agent: string;

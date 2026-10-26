@@ -3298,6 +3298,23 @@
 				},
 				"parentToolCallId": {
 					"type": "string"
+				},
+				"parentId": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"description": "Id of the subagent that spawned this one; null when the root session spawned it.",
+					"default": null
+				},
+				"depth": {
+					"type": "integer",
+					"description": "Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.",
+					"default": 0
 				}
 			},
 			"required": [
@@ -4529,6 +4546,23 @@
 				"parentToolCallId": {
 					"type": "string"
 				},
+				"parentId": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"description": "Id of the subagent that spawned this one; null when the root session spawned it.",
+					"default": null
+				},
+				"depth": {
+					"type": "integer",
+					"description": "Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.",
+					"default": 0
+				},
 				"detached": {
 					"type": "boolean",
 					"description": "The subagent runs as a detached background job."
@@ -4566,6 +4600,23 @@
 				"parentToolCallId": {
 					"type": "string"
 				},
+				"parentId": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"description": "Id of the subagent that spawned this one; null when the root session spawned it.",
+					"default": null
+				},
+				"depth": {
+					"type": "integer",
+					"description": "Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.",
+					"default": 0
+				},
 				"assignment": {
 					"type": "string"
 				},
@@ -4593,6 +4644,23 @@
 				"event": {
 					"$ref": "#/$defs/RpcAgentEvent",
 					"x-unknown-fallback": true
+				},
+				"parentId": {
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					],
+					"description": "Id of the subagent that spawned this one; null when the root session spawned it.",
+					"default": null
+				},
+				"depth": {
+					"type": "integer",
+					"description": "Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.",
+					"default": 0
 				}
 			},
 			"required": [

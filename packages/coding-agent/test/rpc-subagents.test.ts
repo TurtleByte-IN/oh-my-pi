@@ -63,6 +63,8 @@ function createRegistryWithSnapshot(): RpcSubagentRegistry {
 		agentSource: "bundled",
 		status: "started",
 		sessionFile: "/tmp/subagent.jsonl",
+		parentId: null,
+		depth: 0,
 	} satisfies SubagentLifecyclePayload);
 	expect(registry.getSubagents()).toHaveLength(1);
 	return registry;
@@ -99,6 +101,8 @@ describe("RPC subagent registry", () => {
 			status: "started",
 			sessionFile: "/tmp/subagent.jsonl",
 			parentToolCallId: "toolu_parent",
+			parentId: null,
+			depth: 0,
 		};
 		const progressPayload: SubagentProgressPayload = {
 			index: 0,
@@ -108,10 +112,14 @@ describe("RPC subagent registry", () => {
 			assignment: "Implement work",
 			parentToolCallId: "toolu_parent",
 			sessionFile: "/tmp/subagent.jsonl",
+			parentId: null,
+			depth: 0,
 			progress: createProgress(),
 		};
 		const eventPayload: SubagentEventPayload = {
 			id: "SubagentA",
+			parentId: null,
+			depth: 0,
 			event: { type: "agent_start" },
 		};
 
@@ -145,6 +153,8 @@ describe("RPC subagent registry", () => {
 			status: "started",
 			sessionFile: "/tmp/subagent.jsonl",
 			parentToolCallId: "toolu_parent",
+			parentId: null,
+			depth: 0,
 		};
 		const progressPayload: SubagentProgressPayload = {
 			index: 0,
@@ -154,6 +164,8 @@ describe("RPC subagent registry", () => {
 			assignment: "Implement work",
 			parentToolCallId: "toolu_parent",
 			sessionFile: "/tmp/subagent.jsonl",
+			parentId: null,
+			depth: 0,
 			progress: createProgress(),
 		};
 
@@ -274,6 +286,8 @@ describe("RPC subagent registry", () => {
 			agentSource: "bundled",
 			status: "started",
 			sessionFile,
+			parentId: null,
+			depth: 0,
 		} satisfies SubagentLifecyclePayload);
 
 		expect(registry.getSubagents()).toHaveLength(1);
@@ -284,6 +298,8 @@ describe("RPC subagent registry", () => {
 			agentSource: "bundled",
 			status: "completed",
 			sessionFile,
+			parentId: null,
+			depth: 0,
 		} satisfies SubagentLifecyclePayload);
 
 		expect(registry.getSubagents()).toHaveLength(0);
@@ -298,6 +314,8 @@ describe("RPC subagent registry", () => {
 		const registry = new RpcSubagentRegistry(eventBus, frame => frames.push(frame));
 		const eventPayload: SubagentEventPayload = {
 			id: "SubagentA",
+			parentId: null,
+			depth: 0,
 			event: { type: "agent_start" },
 		};
 
@@ -462,6 +480,8 @@ function handle(frame) {
 			agentSource: "bundled",
 			status: "started",
 			parentToolCallId: "call-1",
+			parentId: null,
+			depth: 0,
 			index: 1,
 		} satisfies SubagentLifecyclePayload);
 		eventBus.emit(TASK_SUBAGENT_LIFECYCLE_CHANNEL, {
@@ -470,15 +490,23 @@ function handle(frame) {
 			agentSource: "bundled",
 			status: "started",
 			parentToolCallId: "call-2",
+			parentId: "Kid",
+			depth: 1,
 			index: 2,
 		} satisfies SubagentLifecyclePayload);
 		eventBus.emit(TASK_SUBAGENT_EVENT_CHANNEL, {
 			id: "Kid.Grandkid",
+			parentId: "Kid",
+			depth: 1,
 			event: { type: "agent_start" } as SubagentEventPayload["event"],
 		} satisfies SubagentEventPayload);
 		expect(frames.map(frame => frame.type)).toEqual(["subagent_lifecycle", "subagent_lifecycle", "subagent_event"]);
-		expect((frames[1] as { payload: SubagentLifecyclePayload }).payload.id).toBe("Kid.Grandkid");
-		expect((frames[2] as { payload: SubagentEventPayload }).payload.id).toBe("Kid.Grandkid");
+		expect(frames[1]).toMatchObject({ payload: { id: "Kid.Grandkid", parentId: "Kid", depth: 1 } });
+		expect(frames[2]).toMatchObject({ payload: { id: "Kid.Grandkid", parentId: "Kid", depth: 1 } });
+		expect(registry.getSubagents().map(({ id, parentId, depth }) => ({ id, parentId, depth }))).toEqual([
+			{ id: "Kid", parentId: null, depth: 0 },
+			{ id: "Kid.Grandkid", parentId: "Kid", depth: 1 },
+		]);
 		registry.dispose();
 	});
 
@@ -497,6 +525,8 @@ function handle(frame) {
 			agentSource: "bundled",
 			status: "started",
 			index: 1,
+			parentId: null,
+			depth: 0,
 		} satisfies SubagentLifecyclePayload);
 		expect(framesA).toEqual([]);
 		expect(framesB).toHaveLength(1);

@@ -6,5 +6,9 @@
 	{
 		"version": "1.1.0",
 		"schemaHash": "sha256:a93fd9cef9ff9f22d32e7cb4d05027516735b04781433fec132629d3e0f070fe"
+	},
+	{
+		"version": "1.2.0",
+		"schemaHash": "sha256:deccc78afb3ee26a2c5a70b1666936c65356fcc4bacecae08baea73815d82624"
 	}
 ]

@@ -6,6 +6,23 @@ import { absentAs, doc, type WireDefs } from "./dsl";
 
 const JSON_OBJECT = "Record<string, unknown>";
 const UI = "'extension_ui_request'";
+/**
+ * Spawn-tree fields carried by every subagent frame and `get_subagents` snapshot.
+ * Older servers omit them; decoders read that as a root-spawned subagent.
+ */
+export const SUBAGENT_LINEAGE = {
+	parentId: absentAs(
+		doc("string | null", "Id of the subagent that spawned this one; null when the root session spawned it."),
+		null,
+	),
+	depth: absentAs(
+		doc(
+			"number.integer",
+			"Subagent ancestors above this one: 0 when the root session spawned it, 1 for its children, and so on.",
+		),
+		0,
+	),
+} as const;
 
 export const frameDefs = {
 	ReadyEvent: doc(
@@ -65,6 +82,7 @@ export const frameDefs = {
 		status: "SubagentLifecycleStatus",
 		"sessionFile?": "string",
 		"parentToolCallId?": "string",
+		...SUBAGENT_LINEAGE,
 		index: "number.integer",
 		"detached?": doc("boolean", "The subagent runs as a detached background job."),
 	},
@@ -74,12 +92,13 @@ export const frameDefs = {
 		agentSource: "AgentSource",
 		task: "string",
 		"parentToolCallId?": "string",
+		...SUBAGENT_LINEAGE,
 		"assignment?": "string",
 		progress: doc(JSON_OBJECT, "Raw `AgentProgress` record."),
 		"sessionFile?": "string",
 		"detached?": "boolean",
 	},
-	SubagentEventPayload: { id: "string", event: "RpcAgentEvent" },
+	SubagentEventPayload: { id: "string", ...SUBAGENT_LINEAGE, event: "RpcAgentEvent" },
 	SubagentLifecycleEvent: doc(
 		{ type: "'subagent_lifecycle'", payload: "SubagentLifecyclePayload" },
 		'A subagent started or ended; sent at subscription level "progress" or "events".',
