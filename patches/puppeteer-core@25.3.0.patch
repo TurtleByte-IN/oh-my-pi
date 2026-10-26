@@ -759,7 +759,7 @@ index a1af6472f4fb346978e3bd073ddb34963b129da2..951b5968947edaf24775716ccbab31d3
 +            // ErrorEvent stringifies to "[object ErrorEvent]", and ws-style messages
 +            // ("Unexpected server response: 404", Bun >= 1.4.4) omit the URL.
 +            ws.addEventListener('error', event => {
-+                const reason = String(event.message ?? event.error ?? 'handshake failed');
++                const reason = String(event.message || event.error || 'handshake failed');
 +                const message = reason.includes(url) ? reason : `WebSocket connection to '${url}' failed: ${reason}`;
 +                reject(new Error(message, { cause: event.error }));
 +            });
