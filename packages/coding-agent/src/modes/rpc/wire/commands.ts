@@ -118,6 +118,42 @@ export const rpcCommands: readonly RpcCommandSpec[] = [
 		unwrap: "enabled",
 	},
 	{
+		name: "set_approval_mode",
+		doc: "Set `tools.approvalMode` for this process without writing config, like relaunching with `--approval-mode`; returns the applied mode.",
+		params: { mode: "ApprovalMode" },
+		result: { mode: "ApprovalMode" },
+		unwrap: "mode",
+	},
+	{
+		name: "set_advisor",
+		doc: "Turn the advisor on or off for this session, like `/advisor on|off`.",
+		params: { enabled: "boolean" },
+		result: {
+			enabled: doc("boolean", "The session's advisor setting after the call."),
+			active: doc(
+				"boolean",
+				"Whether an advisor is running; false when no model is assigned to the `advisor` role.",
+			),
+		},
+	},
+	{
+		name: "set_prewalk",
+		doc: "Arm the one-shot handoff to the `smol` role model at the next edit/write, or cancel it, like `/prewalk` and `/prewalk off`.",
+		params: { armed: "boolean" },
+		result: {
+			armed: doc("boolean", "Whether a handoff is pending after the call."),
+			"provider?": doc("string", "Provider of the pending handoff's target model."),
+			"modelId?": doc("string", "Id of the pending handoff's target model."),
+		},
+	},
+	{
+		name: "set_tool_enabled",
+		doc: "Enable or disable one registered tool for this session; returns whether it is now enabled.",
+		params: { tool: "string", enabled: "boolean" },
+		result: { enabled: "boolean" },
+		unwrap: "enabled",
+	},
+	{
 		name: "get_available_commands",
 		doc: "List the slash-command catalog.",
 		result: { commands: "AvailableSlashCommand[]" },

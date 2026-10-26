@@ -57,8 +57,11 @@ import { findMostRecentNonEmptySession } from "../../session/session-listing";
 import { SKILL_PROMPT_MESSAGE_TYPE, USER_INTERRUPT_LABEL } from "../../session/messages";
 import { executeAcpBuiltinSlashCommand } from "../../slash-commands/acp-builtins";
 import { buildAvailableSlashCommands } from "../../slash-commands/available-commands";
+import { resolvePrewalkTarget } from "../../slash-commands/builtin-modes";
 import { listLogoutAccounts, logoutCredential } from "../../slash-commands/helpers/logout";
 import { defaultLoadModeForToolName } from "../../tools/essential-tools";
+import { isApprovalMode } from "../../tools/approval";
+import { cfgToolsApprovalMode } from "../../tools/settings";
 import { USER_TODO_EDIT_CUSTOM_TYPE } from "../../tools/todo";
 import type { EventBus } from "../../utils/event-bus";
 import { selectRpcEntries } from "./rpc-compat";
@@ -2144,6 +2147,76 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 			case "set_ask_dialog": {
 				rpcUiContext.askDialogEnabled = command.enabled === true;
 				return success(id, "set_ask_dialog", { enabled: rpcUiContext.askDialogEnabled });
+			}
+
+			case "set_approval_mode": {
+				// Where the mode is read, an unknown value falls back to yolo: refuse it here.
+				if (!isApprovalMode(command.mode)) {
+					return error(id, "set_approval_mode", `Invalid approval mode: ${String(command.mode)}`);
+				}
+				// `--auto-approve`/`--yolo` force yolo in every tool context, so a stricter mode
+				// would be reported but never enforced.
+				if (session.autoApprove && command.mode !== "yolo") {
+					return error(
+						id,
+						"set_approval_mode",
+						"Approval mode is locked to yolo: the session was started with --auto-approve/--yolo.",
+					);
+				}
+				// The same runtime override `--approval-mode` applies; config.yml is not written.
+				cfgToolsApprovalMode.override(session.settings, command.mode);
+				return success(id, "set_approval_mode", { mode: cfgToolsApprovalMode.get(session.settings) });
+			}
+
+			case "set_advisor": {
+				if (typeof command.enabled !== "boolean") {
+					return error(id, "set_advisor", "set_advisor requires boolean enabled");
+				}
+				const active = session.setAdvisorEnabled(command.enabled);
+				return success(id, "set_advisor", { enabled: session.isAdvisorEnabled(), active });
+			}
+
+			case "set_prewalk": {
+				if (typeof command.armed !== "boolean") {
+					return error(id, "set_prewalk", "set_prewalk requires boolean armed");
+				}
+				if (command.armed) {
+					const target = resolvePrewalkTarget(session, session.settings);
+					if ("error" in target) return error(id, "set_prewalk", target.error);
+					session.armPrewalk(target.model, target.thinkingLevel);
+				} else {
+					session.disarmPrewalk();
+				}
+				const prewalk = session.getPrewalkState();
+				return success(
+					id,
+					"set_prewalk",
+					prewalk
+						? { armed: true, provider: prewalk.target.provider, modelId: prewalk.target.id }
+						: { armed: false },
+				);
+			}
+
+			case "set_tool_enabled": {
+				if (typeof command.tool !== "string" || typeof command.enabled !== "boolean") {
+					return error(id, "set_tool_enabled", "set_tool_enabled requires string tool and boolean enabled");
+				}
+				if (!session.getAllToolNames().includes(command.tool)) {
+					return error(id, "set_tool_enabled", `Unknown tool: ${command.tool}`);
+				}
+				// Plan mode's read-only tool set is what keeps it from editing; it restores tools on exit.
+				if (session.getPlanModeState()?.enabled) {
+					return error(id, "set_tool_enabled", "Plan mode controls the tool set; exit plan mode first.");
+				}
+				const enabledTools = session.getEnabledToolNames();
+				await session.setActiveToolsByName(
+					command.enabled
+						? [...new Set([...enabledTools, command.tool])]
+						: enabledTools.filter(name => name !== command.tool),
+				);
+				return success(id, "set_tool_enabled", {
+					enabled: session.getEnabledToolNames().includes(command.tool),
+				});
 			}
 
 			case "get_available_commands": {

@@ -378,6 +378,9 @@ export type QueuedMessageQueue = "steering" | "followUp";
 
 export type CacheWarmingMode = "off" | "streaming" | "idle";
 
+/** `tools.approvalMode`: the highest tool tier that runs without asking (the `--approval-mode` choices). */
+export type ApprovalMode = "always-ask" | "always-ask-cached" | "write" | "yolo";
+
 /** `set_event_filter` projection: `delta` drops the accumulated snapshots from `message_update`. */
 export type MessageUpdates = "full" | "delta";
 
@@ -1536,6 +1539,47 @@ export interface SetAskDialogResult {
 	enabled: boolean;
 }
 
+export interface SetApprovalModeParams {
+	mode: ApprovalMode;
+}
+
+export interface SetApprovalModeResult {
+	mode: ApprovalMode;
+}
+
+export interface SetAdvisorParams {
+	enabled: boolean;
+}
+
+export interface SetAdvisorResult {
+	/** The session's advisor setting after the call. */
+	enabled: boolean;
+	/** Whether an advisor is running; false when no model is assigned to the `advisor` role. */
+	active: boolean;
+}
+
+export interface SetPrewalkParams {
+	armed: boolean;
+}
+
+export interface SetPrewalkResult {
+	/** Whether a handoff is pending after the call. */
+	armed: boolean;
+	/** Provider of the pending handoff's target model. */
+	provider?: string;
+	/** Id of the pending handoff's target model. */
+	modelId?: string;
+}
+
+export interface SetToolEnabledParams {
+	tool: string;
+	enabled: boolean;
+}
+
+export interface SetToolEnabledResult {
+	enabled: boolean;
+}
+
 export interface GetAvailableCommandsResult {
 	commands: AvailableSlashCommand[];
 }
@@ -1810,6 +1854,10 @@ export interface RpcWireCommands {
 	set_slow_mode: { params: SetSlowModeParams; result: SetSlowModeResult };
 	goal: { params: GoalParams; result: GoalResult };
 	set_ask_dialog: { params: SetAskDialogParams; result: SetAskDialogResult };
+	set_approval_mode: { params: SetApprovalModeParams; result: SetApprovalModeResult };
+	set_advisor: { params: SetAdvisorParams; result: SetAdvisorResult };
+	set_prewalk: { params: SetPrewalkParams; result: SetPrewalkResult };
+	set_tool_enabled: { params: SetToolEnabledParams; result: SetToolEnabledResult };
 	get_available_commands: { params: undefined; result: GetAvailableCommandsResult };
 	get_entries: { params: GetEntriesParams; result: SessionEntries };
 	get_tree: { params: undefined; result: SessionTree };

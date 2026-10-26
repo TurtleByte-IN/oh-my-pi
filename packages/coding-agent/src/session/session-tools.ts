@@ -1150,6 +1150,11 @@ export class SessionTools {
 		}) as T;
 	}
 
+	/** Whether the session was created with `autoApprove` (`--auto-approve`/`--yolo`), which forces yolo in every tool context. */
+	get autoApprove(): boolean {
+		return this.#autoApprove;
+	}
+
 	#isExplicitAutoApproveMode(): boolean {
 		return (
 			this.#autoApprove ||

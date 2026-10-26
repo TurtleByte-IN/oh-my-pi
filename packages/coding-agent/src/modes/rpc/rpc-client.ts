@@ -17,6 +17,7 @@ import type { AgentSessionEvent, SessionStats } from "../../session/agent-sessio
 import type { BtwHistoryRecord } from "../../session/btw-history";
 import type { CacheWarmingMode } from "../../session/cache-warmer";
 import type { SessionEntry, SessionTreeNode } from "../../session/session-entries";
+import type { ApprovalMode } from "../../tools/approval";
 import { MAX_RPC_FRAME_BYTES, MAX_RPC_REASSEMBLED_BYTES, RpcFrameDecoder, type RpcProtocolVersion } from "./rpc-frame";
 import type { RpcGoalOp, RpcGoalResult } from "./rpc-goal";
 import {
@@ -42,6 +43,7 @@ import type {
 	RpcHostToolUpdate,
 	RpcLiveFrame,
 	RpcOpenSessionResult,
+	RpcPrewalkResult,
 	RpcPromptResultFrame,
 	RpcRemoveQueuedMessageResult,
 	RpcResponse,
@@ -823,6 +825,40 @@ export class RpcClient {
 	 */
 	async setSlowMode(enabled: boolean): Promise<boolean> {
 		const response = await this.#send({ type: "set_slow_mode", enabled });
+		return this.#getData<{ enabled: boolean }>(response).enabled;
+	}
+
+	/**
+	 * Set `tools.approvalMode` for the server process without writing config, as
+	 * `--approval-mode` does at launch; returns the applied mode.
+	 */
+	async setApprovalMode(mode: ApprovalMode): Promise<ApprovalMode> {
+		const response = await this.#send({ type: "set_approval_mode", mode });
+		return this.#getData<{ mode: ApprovalMode }>(response).mode;
+	}
+
+	/**
+	 * Turn the advisor on or off for this session. `active` is false when no model is
+	 * assigned to the `advisor` role.
+	 */
+	async setAdvisor(enabled: boolean): Promise<{ enabled: boolean; active: boolean }> {
+		const response = await this.#send({ type: "set_advisor", enabled });
+		return this.#getData(response);
+	}
+
+	/**
+	 * Arm the one-shot prewalk handoff to the `smol` role model, or cancel it.
+	 */
+	async setPrewalk(armed: boolean): Promise<RpcPrewalkResult> {
+		const response = await this.#send({ type: "set_prewalk", armed });
+		return this.#getData(response);
+	}
+
+	/**
+	 * Enable or disable one registered tool for this session; returns whether it is now enabled.
+	 */
+	async setToolEnabled(tool: string, enabled: boolean): Promise<boolean> {
+		const response = await this.#send({ type: "set_tool_enabled", tool, enabled });
 		return this.#getData<{ enabled: boolean }>(response).enabled;
 	}
 
