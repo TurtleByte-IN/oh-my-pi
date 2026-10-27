@@ -10,7 +10,11 @@
  * `--model fake/fake-model`.
  *
  * Replies, by the conversation's last message:
- * - a tool result → text `tool said: <result text>`
+ * - a tool result → text `tool said: <result text>`; a staged `ast_edit`
+ *   preview's result is held until `<agentDir>/release-proposal` exists (or the
+ *   request is aborted), so a host can act while the turn still runs
+ * - a user message containing `ast_edit_uri <path> <pat> <out>` → an `ast_edit`
+ *   call rewriting `<pat>` to `<out>` in `<path>` (staged as a proposal)
  * - a user message containing `echo_host` → a call to the `echo_host` tool with
  *   `{"message": "hello"}` (through `write` to `xd://echo_host` when host tools
  *   are mounted as devices)
@@ -40,12 +44,36 @@ function messageText(content: unknown): string {
 		.join("");
 }
 
-function scriptedReply(request: ChatRequest): Reply {
+const PREVIEW_STAGED = "Staged as a proposal";
+
+/** Hold a reply until the test drops `release-proposal` in the agent dir, or the client hangs up. */
+async function heldUntilReleased(signal: AbortSignal): Promise<void> {
+	const release = path.join(agentDir, "release-proposal");
+	while (!signal.aborted && !(await Bun.file(release).exists())) await Bun.sleep(25);
+}
+
+async function scriptedReply(request: ChatRequest, signal: AbortSignal): Promise<Reply> {
 	const messages = request.messages ?? [];
 	const last = messages.at(-1);
+	// The preview's tool result may be followed by omp's resolve reminder; the
+	// first answer to a staged preview (no assistant turn after it) is held.
+	const lastToolIndex = messages.findLastIndex(message => message.role === "tool");
+	const lastTool = messages[lastToolIndex];
+	if (
+		lastTool !== undefined &&
+		messageText(lastTool.content).includes(PREVIEW_STAGED) &&
+		!messages.slice(lastToolIndex + 1).some(message => message.role === "assistant")
+	) {
+		await heldUntilReleased(signal);
+		return { text: "staged" };
+	}
 	if (last?.role === "tool") return { text: `tool said: ${messageText(last.content)}` };
 	const offered = new Set((request.tools ?? []).map(tool => tool.function?.name));
 	const userText = last?.role === "user" ? messageText(last.content) : "";
+	const astEdit = /\bast_edit_uri (\S+) (\S+) (\S+)/.exec(userText);
+	if (astEdit) {
+		return { tool: "ast_edit", args: { ops: [{ pat: astEdit[2], out: astEdit[3] }], paths: [astEdit[1]] } };
+	}
 	const uriRequest = /\b(read|write)_uri (\S+)/.exec(userText);
 	if (uriRequest?.[1] === "read") return { tool: "read", args: { path: uriRequest[2] } };
 	if (uriRequest?.[1] === "write") {
@@ -124,7 +152,7 @@ const server = Bun.serve({
 		}
 		if (!url.pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 });
 		const body = chatRequestSchema.assert(await request.json());
-		const reply = scriptedReply(body);
+		const reply = await scriptedReply(body, request.signal);
 		if (!body.stream) return Response.json(completionBody(reply));
 		const events = completionChunks(reply).map(chunk => `data: ${JSON.stringify(chunk)}\n\n`);
 		return new Response(`${events.join("")}data: [DONE]\n\n`, {

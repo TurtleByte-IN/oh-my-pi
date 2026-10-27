@@ -176,6 +176,10 @@ Important edge behavior from runtime:
 - `{ id?, type: "steer_subagent", subagentId: string, message: string }`
 - `{ id?, type: "revive_subagent", subagentId: string, message?: string }`
 
+### Staged proposals
+
+- `{ id?, type: "resolve_proposal", action: "apply" | "discard", toolCallId?: string, reason?: string }`
+
 ### Model
 
 - `{ id?, type: "set_model", provider: string, modelId: string }`
@@ -1346,6 +1350,57 @@ Failure responses:
 
 Only the most recent 256 finished subagents are remembered for `revive_subagent`
 and `get_subagent_messages`.
+
+### Resolving staged proposals
+
+Some tools stage their work instead of writing it: `ast_edit` returns a preview
+headed `Staged as a proposal — files NOT modified yet`, and the agent finalizes
+it by writing a reason to `xd://resolve` (apply) or `xd://reject` (discard).
+`resolve_proposal` lets the host do the same on the user's behalf — for
+example from Accept/Reject buttons on the preview. Contract `1.10.0`; older
+servers answer `Unknown command: resolve_proposal`.
+
+- `toolCallId` picks the preview that tool call staged (the `toolCallId` of its
+  `tool_execution_end`); without it the latest staged preview is resolved,
+  as the agent's own write would.
+- `reason` is passed to the agent; it defaults to "The user accepted the
+  proposal." / "The user rejected the proposal.".
+
+The command runs the same handler as the agent's write, so a preview is
+consumed exactly once: whichever of the host and the agent gets there first
+wins, and the other is told nothing is pending (or that it is already being
+resolved). After it resolves, the agent gets a hidden `proposal-resolved`
+message saying what the user did and not to resolve it again — at the next
+step boundary while a turn runs, otherwise in the next turn's context; no
+turn is started. A staged preview survives `abort`, so a host can still apply
+or discard it after stopping the turn; `new_session`, `switch_session` and
+`branch` drop it.
+
+```json
+{ "id": "req_1", "type": "resolve_proposal", "action": "apply", "toolCallId": "toolu_01" }
+{ "id": "req_1", "type": "response", "command": "resolve_proposal", "success": true, "data": { "action": "apply", "sourceToolName": "ast_edit", "label": "AST Edit: 2 replacements in 1 file", "toolCallId": "toolu_01", "text": "Applied 2 replacements in 1 file.", "isError": false, "details": { "applied": true, "totalReplacements": 2, "filesTouched": 1 } } }
+```
+
+`isError: true` means the apply ran but the files had changed since the preview
+(a stale preview), so fewer or other replacements landed; the preview is
+consumed either way and `text` says what happened. `details` carries the
+staging tool's result details after the apply. The agent's own
+`xd://resolve`/`xd://reject` results carry the staging call as
+`details.xdev.inner.toolCallId` too, so a host can match either resolution to
+its preview.
+
+Failure responses:
+
+- `action` other than `apply`/`discard`, an empty `toolCallId`, or a non-string
+  `reason` → validation error
+- nothing staged → `error: "No staged proposal is pending."`; a `toolCallId`
+  with no staged preview (never staged, or already resolved) →
+  `error: "No staged proposal from tool call <id> is pending."`
+- the apply throws (for example overlapping `ast_edit` replacements) → the
+  error; the preview stays staged, so it can still be discarded
+
+Like `revive_subagent`, the command starts in queue order and finishes in the
+background.
 
 ### Side questions (`/btw`)
 

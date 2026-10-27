@@ -95,6 +95,8 @@ export type RpcCommand =
 	| { id?: string; type: "cancel_subagent"; subagentId: string }
 	| { id?: string; type: "steer_subagent"; subagentId: string; message: string }
 	| { id?: string; type: "revive_subagent"; subagentId: string; message?: string }
+	// Staged previews (`ast_edit` proposals)
+	| { id?: string; type: "resolve_proposal"; action: RpcProposalAction; toolCallId?: string; reason?: string }
 	// Live voice (GPT live bound to this session)
 	| { id?: string; type: "live_start"; voice?: string; instructions?: string }
 	| { id?: string; type: "live_stop" }
@@ -394,6 +396,25 @@ export interface RpcHandoffResult {
 	savedPath?: string;
 }
 
+/** What `resolve_proposal` does to a staged preview: write it or drop it. */
+export type RpcProposalAction = "apply" | "discard";
+
+/** Outcome of `resolve_proposal`. */
+export interface RpcResolveProposalResult {
+	action: RpcProposalAction;
+	/** Tool that staged the preview, e.g. `ast_edit`. */
+	sourceToolName: string;
+	label: string;
+	/** Tool call that staged the preview, when the staging tool recorded it. */
+	toolCallId?: string;
+	/** Result text, as the agent's own `xd://resolve`/`xd://reject` write would have returned it. */
+	text: string;
+	/** The apply ran but no longer matched the preview; the preview is consumed either way. */
+	isError: boolean;
+	/** The staging tool's result details after the apply. */
+	details?: Record<string, unknown>;
+}
+
 export type RpcSubagentSubscriptionLevel = "off" | "progress" | "events";
 
 export interface RpcSubagentSnapshot extends SubagentLineage {
@@ -549,6 +570,13 @@ export type RpcResponse =
 			command: "revive_subagent";
 			success: true;
 			data: { revived: boolean };
+	  }
+	| {
+			id?: string;
+			type: "response";
+			command: "resolve_proposal";
+			success: true;
+			data: RpcResolveProposalResult;
 	  }
 
 	// Model

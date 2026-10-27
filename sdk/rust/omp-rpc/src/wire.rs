@@ -2805,6 +2805,47 @@ impl GoalStatus {
 	}
 }
 
+/// What `resolve_proposal` does to a staged preview: write it (`xd://resolve`) or drop it (`xd://reject`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ProposalAction {
+	#[serde(rename = "apply")]
+	Apply,
+	#[serde(rename = "discard")]
+	Discard,
+}
+
+impl ProposalAction {
+	/// Wire value.
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Apply => "apply",
+			Self::Discard => "discard",
+		}
+	}
+}
+
+/// Outcome of `resolve_proposal`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResolveProposalResult {
+	pub action: ProposalAction,
+	/// Tool that staged the preview, e.g. `ast_edit`.
+	#[serde(rename = "sourceToolName")]
+	pub source_tool_name: String,
+	/// The preview's one-line label, e.g. `AST Edit: 2 replacements in 1 file`.
+	pub label: String,
+	/// Result text, as the agent's own `xd://resolve`/`xd://reject` write would have returned it.
+	pub text: String,
+	/// The apply ran but no longer matched the preview (stale), so fewer or other changes landed; the preview is consumed either way.
+	#[serde(rename = "isError")]
+	pub is_error: bool,
+	/// Tool call that staged the preview, when the staging tool recorded it.
+	#[serde(rename = "toolCallId", default, skip_serializing_if = "Option::is_none")]
+	pub tool_call_id: Option<String>,
+	/// The staging tool's result details after the apply, e.g. `ast_edit` replacement counts.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub details: Option<Map<String, Value>>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SlashCommandSource {
 	#[serde(rename = "builtin")]
@@ -5599,6 +5640,17 @@ pub struct ReviveSubagentResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResolveProposalParams {
+	pub action: ProposalAction,
+	/// Tool call that staged the preview; the latest staged preview when absent.
+	#[serde(rename = "toolCallId", default, skip_serializing_if = "Option::is_none")]
+	pub tool_call_id: Option<String>,
+	/// Why, passed to the agent; defaults to saying the user accepted or rejected it.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LiveStartParams {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub voice: Option<String>,
@@ -6907,6 +6959,28 @@ impl Command for ReviveSubagentCommand {
 
 	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
 		serde_json::from_value::<ReviveSubagentResult>(data.unwrap_or_else(|| Value::Object(Map::new()))).map(|result| result.revived)
+	}
+}
+
+/// Apply or discard a staged preview (an `ast_edit` proposal) on the user's behalf — the one `toolCallId` staged, else the latest — and tell the agent; fails when none is pending.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResolveProposalCommand {
+	pub action: ProposalAction,
+	/// Tool call that staged the preview; the latest staged preview when absent.
+	#[serde(rename = "toolCallId", default, skip_serializing_if = "Option::is_none")]
+	pub tool_call_id: Option<String>,
+	/// Why, passed to the agent; defaults to saying the user accepted or rejected it.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub reason: Option<String>,
+}
+
+impl Command for ResolveProposalCommand {
+	const NAME: &'static str = "resolve_proposal";
+	const TIMEOUT_MS: Option<u64> = None;
+	type Output = ResolveProposalResult;
+
+	fn decode(data: Option<Value>) -> Result<Self::Output, serde_json::Error> {
+		serde_json::from_value::<ResolveProposalResult>(data.unwrap_or_else(|| Value::Object(Map::new())))
 	}
 }
 

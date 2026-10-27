@@ -390,6 +390,26 @@ export type GoalOp = "get" | "create" | "resume" | "pause" | "drop";
 
 export type GoalStatus = "active" | "paused" | "budget-limited" | "complete" | "dropped";
 
+/** What `resolve_proposal` does to a staged preview: write it (`xd://resolve`) or drop it (`xd://reject`). */
+export type ProposalAction = "apply" | "discard";
+
+/** Outcome of `resolve_proposal`. */
+export interface ResolveProposalResult {
+	action: ProposalAction;
+	/** Tool that staged the preview, e.g. `ast_edit`. */
+	sourceToolName: string;
+	/** The preview's one-line label, e.g. `AST Edit: 2 replacements in 1 file`. */
+	label: string;
+	/** Result text, as the agent's own `xd://resolve`/`xd://reject` write would have returned it. */
+	text: string;
+	/** The apply ran but no longer matched the preview (stale), so fewer or other changes landed; the preview is consumed either way. */
+	isError: boolean;
+	/** Tool call that staged the preview, when the staging tool recorded it. */
+	toolCallId?: string;
+	/** The staging tool's result details after the apply, e.g. `ast_edit` replacement counts. */
+	details?: Record<string, unknown>;
+}
+
 export type SlashCommandSource = "builtin" | "skill" | "extension" | "custom" | "mcp_prompt" | "file";
 
 /** Forwarded subagent frames: none, lifecycle and progress, or also raw session events. */
@@ -1803,6 +1823,14 @@ export interface ReviveSubagentResult {
 	revived: boolean;
 }
 
+export interface ResolveProposalParams {
+	action: ProposalAction;
+	/** Tool call that staged the preview; the latest staged preview when absent. */
+	toolCallId?: string;
+	/** Why, passed to the agent; defaults to saying the user accepted or rejected it. */
+	reason?: string;
+}
+
 export interface LiveStartParams {
 	voice?: string;
 	instructions?: string;
@@ -2037,6 +2065,7 @@ export interface RpcWireCommands {
 	cancel_subagent: { params: CancelSubagentParams; result: CancelSubagentResult };
 	steer_subagent: { params: SteerSubagentParams; result: undefined };
 	revive_subagent: { params: ReviveSubagentParams; result: ReviveSubagentResult };
+	resolve_proposal: { params: ResolveProposalParams; result: ResolveProposalResult };
 	live_start: { params: LiveStartParams; result: LiveStartResult };
 	live_stop: { params: undefined; result: undefined };
 	live_mute: { params: LiveMuteParams; result: LiveMuteResult };

@@ -38,6 +38,8 @@ export interface ResolveDetails {
 	reason: string;
 	sourceToolName?: string;
 	label?: string;
+	/** Tool call that staged the resolved preview, when the staging tool recorded it. */
+	toolCallId?: string;
 	sourceResultDetails?: unknown;
 }
 

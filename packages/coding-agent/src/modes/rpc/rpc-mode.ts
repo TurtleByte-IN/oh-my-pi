@@ -474,7 +474,7 @@ const BACKGROUND_COMMANDS: ReadonlySet<string> = new Set<RpcCommand["type"]>([
  * @returns `undefined` when the frame was routed to a side-channel handler
  *   (extension UI response, host tool/URI frames) or dispatched in the
  *   background (`bash`, `predict_word`, `live_start`, `collab_start`, `prompt`, `steer`, `follow_up`, `steer_subagent`,
- *   `revive_subagent`). Otherwise a promise that
+ *   `revive_subagent`, `resolve_proposal`). Otherwise a promise that
  *   resolves once the response for the command has been emitted via `output`.
  *   Errors from `handleCommand` on a command dispatched inline propagate; the
  *   caller is expected to wrap them.
@@ -503,7 +503,8 @@ export function dispatchRpcInputFrame(parsed: unknown, deps: RpcInputFrameDeps):
 		command.type === "steer" ||
 		command.type === "follow_up" ||
 		command.type === "steer_subagent" ||
-		command.type === "revive_subagent"
+		command.type === "revive_subagent" ||
+		command.type === "resolve_proposal"
 	) {
 		const task = (async () => {
 			try {
@@ -2548,6 +2549,46 @@ export async function runRpcMode(session: AgentSession, options: RpcModeOptions 
 					return success(id, "revive_subagent", { revived });
 				} catch (err) {
 					return error(id, "revive_subagent", err instanceof Error ? err.message : String(err));
+				}
+			}
+
+			case "resolve_proposal": {
+				if (command.action !== "apply" && command.action !== "discard") {
+					return error(id, "resolve_proposal", "`action` must be `apply` or `discard`.");
+				}
+				if (
+					command.toolCallId !== undefined &&
+					(typeof command.toolCallId !== "string" || command.toolCallId.length === 0)
+				) {
+					return error(id, "resolve_proposal", "`toolCallId` must be a non-empty string when given.");
+				}
+				if (command.reason !== undefined && typeof command.reason !== "string") {
+					return error(id, "resolve_proposal", "`reason` must be a string when given.");
+				}
+				try {
+					const resolved = await session.resolveStagedProposal({
+						action: command.action,
+						toolCallId: command.toolCallId,
+						reason: command.reason,
+					});
+					const details = resolved.details;
+					const sourceDetails = details?.sourceResultDetails;
+					return success(id, "resolve_proposal", {
+						action: command.action,
+						sourceToolName: details?.sourceToolName ?? "unknown",
+						label: details?.label ?? "",
+						...(details?.toolCallId !== undefined ? { toolCallId: details.toolCallId } : {}),
+						text: resolved.content
+							.map(part => (part.type === "text" ? part.text : ""))
+							.join("\n")
+							.trim(),
+						isError: resolved.isError === true,
+						...(sourceDetails !== null && typeof sourceDetails === "object" && !Array.isArray(sourceDetails)
+							? { details: sourceDetails as Record<string, unknown> }
+							: {}),
+					});
+				} catch (err) {
+					return error(id, "resolve_proposal", err instanceof Error ? err.message : String(err));
 				}
 			}
 

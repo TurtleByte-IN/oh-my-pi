@@ -242,7 +242,7 @@ export class AstEditTool implements AgentTool<typeof astEditSchema, AstEditToolD
 	}
 
 	async execute(
-		_toolCallId: string,
+		toolCallId: string,
 		params: AstEditSchemaInfer,
 		signal?: AbortSignal,
 		_onUpdate?: AgentToolUpdateCallback<AstEditToolDetails>,
@@ -440,6 +440,7 @@ export class AstEditTool implements AgentTool<typeof astEditSchema, AstEditToolD
 				queueResolveHandler(this.session, {
 					label: `AST Edit: ${result.totalReplacements} replacement${previewReplacementPlural} in ${result.filesTouched} file${previewFilePlural}`,
 					sourceToolName: this.name,
+					toolCallId,
 					apply: async (_reason: string) => {
 						// The apply outlives the preview call: its filesystem carries no signal.
 						const applyContext = sessionResolveContext(this.session);
