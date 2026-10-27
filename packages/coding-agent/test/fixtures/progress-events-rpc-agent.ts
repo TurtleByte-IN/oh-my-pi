@@ -15,9 +15,11 @@ import { cfgAsyncEnabled } from "@oh-my-pi/pi-coding-agent/tools/settings";
 // - "fallback": the primary model (anthropic) fails with a retryable 503, the configured
 //   fallback (openai/gpt-4o-mini) answers.
 // - "rule": the first reply streams text matching the TTSR rule `no-forbidden`; later replies are clean.
+// - "fill the context": the reply reports usage at 95% of the context window, past the automatic
+//   compaction threshold.
 // - anything else: "pong".
-// A `session_before_compact` hook supplies the summary, so a manual compaction commits without a
-// summarizer call.
+// A `session_before_compact` hook supplies the summary, so a manual or automatic compaction commits
+// without a summarizer call.
 const PRIMARY = getBundledModel("anthropic", "claude-sonnet-4-5");
 const FALLBACK = getBundledModel("openai", "gpt-4o-mini");
 if (!PRIMARY || !FALLBACK) throw new Error("bundled test models missing");
@@ -86,6 +88,7 @@ function lastUserText(messages: readonly { role: string; content: unknown }[]): 
 }
 
 let ruleReplied = false;
+let contextFilled = false;
 const mock = createMockModel();
 session.agent.streamFn = (model, context, options) => {
 	const text = lastUserText(context.messages);
@@ -98,6 +101,12 @@ session.agent.streamFn = (model, context, options) => {
 	} else if (text.includes("rule") && !ruleReplied) {
 		ruleReplied = true;
 		reply = { content: ["this reply contains the forbidden word"] };
+	} else if (text.includes("fill the context") && !contextFilled) {
+		// Once: the continuation after the compaction sees the same last user message.
+		contextFilled = true;
+		if (model.contextWindow === null) throw new Error(`${model.id} reports no context window`);
+		const input = Math.floor(model.contextWindow * 0.95);
+		reply = { content: ["the context is nearly full"], usage: { input, output: 100, totalTokens: input + 100 } };
 	} else {
 		reply = { content: ["pong"] };
 	}

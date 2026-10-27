@@ -21,6 +21,11 @@
  * - a user message containing `read_uri <url>` → a `read` call for `<url>`
  * - a user message containing `write_uri <url>` → a `write` call storing
  *   `written by model` at `<url>`
+ * - a user message containing `spawn_subagent` → a `task` call that spawns one
+ *   subagent named `Probe` (batch or single form, as the offered `task` schema
+ *   declares); the subagent's own assignment gets the default reply
+ * - a user message containing `ask_user` → an `ask` call with one question
+ *   (`color`: `Red` or `Blue`)
  * - anything else → text `pong`
  */
 import * as path from "node:path";
@@ -28,7 +33,7 @@ import { type } from "@oh-my-pi/omptype";
 
 const chatRequestSchema = type({
 	"messages?": type({ role: "string", "content?": "unknown" }).array(),
-	"tools?": type({ "function?": { "name?": "string" } }).array(),
+	"tools?": type({ "function?": { "name?": "string", "parameters?": "unknown" } }).array(),
 	"stream?": "boolean",
 });
 
@@ -73,6 +78,17 @@ async function scriptedReply(request: ChatRequest, signal: AbortSignal): Promise
 	const astEdit = /\bast_edit_uri (\S+) (\S+) (\S+)/.exec(userText);
 	if (astEdit) {
 		return { tool: "ast_edit", args: { ops: [{ pat: astEdit[2], out: astEdit[3] }], paths: [astEdit[1]] } };
+	}
+	if (userText.includes("spawn_subagent") && offered.has("task")) {
+		const item = { name: "Probe", task: "Reply once.", solutionSpace: "Any reply." };
+		const taskTool = request.tools?.find(tool => tool.function?.name === "task");
+		const parameters = taskTool?.function?.parameters as { properties?: Record<string, unknown> } | undefined;
+		const batch = parameters?.properties !== undefined && "tasks" in parameters.properties;
+		return { tool: "task", args: batch ? { context: "Schema probe.", tasks: [item] } : item };
+	}
+	if (userText.includes("ask_user") && offered.has("ask")) {
+		const question = { id: "color", question: "Pick a color", options: [{ label: "Red" }, { label: "Blue" }] };
+		return { tool: "ask", args: { questions: [question] } };
 	}
 	const uriRequest = /\b(read|write)_uri (\S+)/.exec(userText);
 	if (uriRequest?.[1] === "read") return { tool: "read", args: { path: uriRequest[2] } };
