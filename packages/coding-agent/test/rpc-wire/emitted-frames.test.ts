@@ -367,11 +367,31 @@ class RpcUiHarness {
 		return frame;
 	}
 
-	/** Wait until the session reports itself settled (idle, nothing queued). */
+	/**
+	 * Wait until the session reports itself settled (idle, nothing queued). Subscribes to
+	 * `session_settled` before asking `get_state`, as `RpcClient.waitForSettled` does, so a settle
+	 * between the two cannot be missed.
+	 */
 	async settled(): Promise<void> {
-		const state = (await this.data({ type: "get_state" })) as { isStreaming?: boolean };
-		if (state.isStreaming !== true) return;
-		await this.waitFor(frame => frame.type === "session_settled", 120_000);
+		const { promise, resolve, reject } = Promise.withResolvers<Frame>();
+		const waiter: Waiter = { match: frame => frame.type === "session_settled", resolve };
+		this.#waiters.push(waiter);
+		const timeout = AbortSignal.timeout(120_000);
+		const onTimeout = () =>
+			reject(
+				new Error(
+					`timed out waiting for session_settled; last frame: ${JSON.stringify(this.frames.at(-1))?.slice(0, 500)}`,
+				),
+			);
+		timeout.addEventListener("abort", onTimeout);
+		try {
+			const state = (await this.data({ type: "get_state" })) as { isSettled?: boolean };
+			if (state.isSettled === true) return;
+			await promise;
+		} finally {
+			timeout.removeEventListener("abort", onTimeout);
+			this.#waiters = this.#waiters.filter(entry => entry !== waiter);
+		}
 	}
 
 	async stop(): Promise<void> {
