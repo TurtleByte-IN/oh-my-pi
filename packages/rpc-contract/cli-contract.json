@@ -1,5 +1,5 @@
 {
-	"cliContractVersion": "1.0.0",
-	"schemaHash": "sha256:c69d63a87d5f91f918f9afb03f6aed8d637262e9c2f783e1524f62c1e6d14540",
+	"cliContractVersion": "1.1.0",
+	"schemaHash": "sha256:678ce0308cd99c3419c023beeedd8783c662436a3da185007def26a6b7ea6e6c",
 	"schema": "cli-contract.schema.json"
 }

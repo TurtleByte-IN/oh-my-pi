@@ -99,6 +99,23 @@ const configDefs = {
 		"One setting in `omp config list --json`.",
 	),
 	CliConfigList: doc("Record<string, CliConfigEntry>", "`omp config list --json`: every setting by key."),
+	CliConfigLayerEntry: doc(
+		{
+			"+": "reject",
+			"value?": doc(
+				"unknown",
+				"Value as the layer holds it: path-scoped arrays (`enabledModels`, `enabledProviders`, `disabledProviders`) keep their `{ path, … }` entries unresolved. Absent when redacted.",
+			),
+			"redacted?": doc("true", "Set when the layer holds a non-empty credential: `value` is withheld."),
+			type: "CliSettingType",
+			description: "string",
+		},
+		"One setting in `omp config list --scope <scope> --json`.",
+	),
+	CliConfigLayerList: doc(
+		"Record<string, CliConfigLayerEntry>",
+		"`omp config list --scope global|project --json`: only the keys that layer sets, by key.",
+	),
 	CliConfigSetResult: doc(
 		{
 			"+": "reject",
@@ -211,6 +228,11 @@ const cliDefs: WireDefs = { ...configDefs, ...modelDefs, ...pluginDefs, ...skill
 /** Every `--json` command in the contract. */
 export const CLI_CONTRACT_COMMANDS: readonly CliContractCommand[] = [
 	{ name: "config list", usage: "omp config list --json [--cwd <path>]", output: "CliConfigList" },
+	{
+		name: "config list --scope",
+		usage: "omp config list --scope global|project --json [--cwd <path>]",
+		output: "CliConfigLayerList",
+	},
 	{
 		name: "config set",
 		usage: "omp config set <key> <value> --json [--scope global|project] [--cwd <path>]",

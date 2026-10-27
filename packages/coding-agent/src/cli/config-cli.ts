@@ -21,7 +21,10 @@ import { initXdg } from "./commands/init-xdg";
 
 export type ConfigAction = "list" | "get" | "set" | "reset" | "path" | "init-xdg";
 
-/** Layer `set` and `reset` write: the agent dir's `config.yml`, or `<cwd>/.omp/config.yml`. */
+/**
+ * Layer `set` and `reset` write, and `list --scope` reads as written: the agent dir's
+ * `config.yml`, or `<cwd>/.omp/config.yml`.
+ */
 export type ConfigScope = "global" | "project";
 
 export interface ConfigCommandArgs {
@@ -30,7 +33,7 @@ export interface ConfigCommandArgs {
 	value?: string;
 	flags: {
 		json?: boolean;
-		/** Layer `set`/`reset` write; defaults to `global`. */
+		/** Layer `set`/`reset` write (default `global`); `list` reads only this layer, as written. */
 		scope?: ConfigScope;
 		/** Project directory whose settings are read or written; defaults to the current directory. */
 		cwd?: string;
@@ -170,8 +173,8 @@ function getTypeDisplay(def: CliSettingDef): string {
 // =============================================================================
 
 export async function runConfigCommand(cmd: ConfigCommandArgs): Promise<void> {
-	if (cmd.flags.scope !== undefined && cmd.action !== "set" && cmd.action !== "reset") {
-		console.error(chalk.red("--scope applies to `config set` and `config reset` only"));
+	if (cmd.flags.scope !== undefined && cmd.action !== "list" && cmd.action !== "set" && cmd.action !== "reset") {
+		console.error(chalk.red("--scope applies to `config list`, `config set` and `config reset` only"));
 		process.exit(1);
 	}
 	const cwd = cmd.flags.cwd === undefined ? undefined : await resolveProjectDir(cmd.flags.cwd);
@@ -181,7 +184,8 @@ export async function runConfigCommand(cmd: ConfigCommandArgs): Promise<void> {
 
 	switch (cmd.action) {
 		case "list":
-			await handleList(cmd.flags);
+			if (cmd.flags.scope === undefined) await handleList(cmd.flags);
+			else await handleListLayer(cmd.flags.scope, cmd.flags);
 			break;
 		case "get":
 			handleGet(cmd.key, cmd.flags);
@@ -284,6 +288,38 @@ async function handleList(flags: { json?: boolean }): Promise<void> {
 			console.log(`  ${chalk.white(def.path)} = ${valueStr} ${chalk.dim(typeStr)}`);
 		}
 		console.log("");
+	}
+}
+
+/**
+ * The keys the `scope` layer sets — the global `config.yml`, or the project's settings files —
+ * with the values as written: path-scoped arrays keep their `{ path, … }` entries unresolved, so a
+ * host can edit the layer's own value without dropping them. Defaults, other layers and the
+ * environment are not consulted. Credentials are redacted as in `list`.
+ */
+async function handleListLayer(scope: ConfigScope, flags: { json?: boolean }): Promise<void> {
+	const entries: [CliSettingDef, unknown][] = [];
+	for (const def of orderedSettings().map(toSettingDef)) {
+		const value = layerValue(def.setting, scope);
+		if (value !== undefined) entries.push([def, value]);
+	}
+
+	if (flags.json) {
+		const result: Record<string, { value?: unknown; redacted?: true; type: string; description: string }> = {};
+		for (const [def, value] of entries) {
+			result[def.path] =
+				def.setting.isCredential && value
+					? { redacted: true, type: def.type, description: def.description }
+					: { value, type: def.type, description: def.description };
+		}
+		await writeStdout(`${JSON.stringify(result, null, 2)}\n`);
+		return;
+	}
+
+	console.log(chalk.bold(`Settings in the ${scope} layer:\n`));
+	for (const [def, value] of entries) {
+		const valueStr = def.setting.isCredential && value ? REDACTED : formatValue(value);
+		console.log(`  ${chalk.white(def.path)} = ${valueStr} ${chalk.dim(getTypeDisplay(def))}`);
 	}
 }
 
@@ -478,6 +514,8 @@ ${chalk.bold("Commands:")}
 
 ${chalk.bold("Options:")}
   --json             Output as JSON
+  --scope <scope>    global or project: the file set/reset write; list shows only that file's keys, as written
+  --cwd <path>       Project directory whose settings are read or written
 
 ${chalk.bold("Examples:")}
   ${APP_NAME} config list
@@ -487,6 +525,7 @@ ${chalk.bold("Examples:")}
   ${APP_NAME} config set defaultThinkingLevel medium
   ${APP_NAME} config reset steeringMode
   ${APP_NAME} config list --json
+  ${APP_NAME} config list --scope global --json
   ${APP_NAME} config init-xdg
 
 ${chalk.bold("Boolean Values:")}
