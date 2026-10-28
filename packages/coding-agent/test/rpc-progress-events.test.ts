@@ -1,9 +1,9 @@
 /**
  * Thread-notice progress events reach an RPC host: model fallback (`retry_fallback_applied`),
- * goal changes (`goal_updated`), rule injection (`ttsr_triggered`), and manual compaction
- * (`manual_compaction_start`/`manual_compaction_end`). Drives a real SDK session in
- * `runRpcMode` over the RPC client; only the model is scripted
- * (`fixtures/progress-events-rpc-agent.ts`).
+ * goal changes (`goal_updated`), rule injection (`ttsr_triggered`), and manual and automatic
+ * compaction (`manual_compaction_start`/`manual_compaction_end`,
+ * `auto_compaction_start`/`auto_compaction_end`). Drives a real SDK session in `runRpcMode` over
+ * the RPC client; only the model is scripted (`fixtures/progress-events-rpc-agent.ts`).
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
@@ -113,5 +113,28 @@ describe("RPC progress events", () => {
 			{ type: "manual_compaction_start" },
 			{ type: "manual_compaction_end", aborted: false, skipped: true, errorMessage: "Already compacted" },
 		]);
+	}, 60_000);
+
+	test("automatic compaction emits auto_compaction_start and auto_compaction_end", async () => {
+		const { rpc, events } = await start();
+		await rpc.promptAndWait("first turn");
+		await rpc.promptAndWait("fill the context");
+		await rpc.waitForSettled();
+
+		// The action follows the configured compaction strategy; start and end report the same one.
+		const pair = events.filter(event => event.type.startsWith("auto_compaction_"));
+		const action = ofType(pair, "auto_compaction_start")[0]?.action;
+		expect(pair).toEqual([
+			{ type: "auto_compaction_start", reason: "threshold", action: expect.any(String) },
+			{
+				type: "auto_compaction_end",
+				action,
+				aborted: false,
+				willRetry: false,
+				result: expect.objectContaining({ summary: "compacted by the test hook" }),
+			},
+		]);
+		// An automatic compaction never reports through the manual pair.
+		expect(events.some(event => event.type.startsWith("manual_compaction_"))).toBe(false);
 	}, 60_000);
 });
