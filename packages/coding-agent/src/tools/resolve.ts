@@ -149,6 +149,8 @@ export function queueResolveHandler(
 	options: {
 		label: string;
 		sourceToolName: string;
+		/** Tool call that staged the preview; a host can resolve this one preview by it (`resolve_proposal`). */
+		toolCallId?: string;
 		apply(reason: string): Promise<AgentToolResult<unknown>>;
 		reject?(reason: string): Promise<AgentToolResult<unknown> | undefined>;
 	},
@@ -158,30 +160,48 @@ export function queueResolveHandler(
 
 	// Unique per preview: stacked/sequential previews each get their own entry.
 	const id = `pending-action:${options.sourceToolName}:${pendingPreviewSeq++}`;
+	// The agent's resolution-device write and a host's `resolve_proposal` can race:
+	// a caller arriving while one is in progress, or after it settled, must not
+	// apply the preview twice.
+	let state: "pending" | "resolving" | "resolved" = "pending";
 
 	const onInvoked = async (input: unknown): Promise<AgentToolResult<unknown>> => {
-		const result = await runResolveInvocation(input as ResolveInvocation, {
-			sourceToolName: options.sourceToolName,
-			label: options.label,
-			apply: options.apply,
-			reject: options.reject,
-			onApplyError: () => {
-				// Apply threw (e.g. ast_edit overlapping replacements). Keep the preview
-				// pending under the SAME id so the model can reject or fix-and-retry;
-				// runResolveInvocation rethrows, so the success-path removal below is skipped.
-				queue.registerPendingInvoker(id, options.sourceToolName, onInvoked);
-			},
-		});
-		// Resolved (apply succeeded, or discard): consume the staged action exactly once.
-		queue.removePendingInvoker(id);
-		return result;
+		if (state !== "pending") {
+			throw new ToolError(
+				state === "resolving"
+					? `${options.label} is already being resolved.`
+					: `${options.label} was already resolved.`,
+			);
+		}
+		state = "resolving";
+		try {
+			const result = await runResolveInvocation(input as ResolveInvocation, {
+				sourceToolName: options.sourceToolName,
+				label: options.label,
+				toolCallId: options.toolCallId,
+				apply: options.apply,
+				reject: options.reject,
+				onApplyError: () => {
+					// Apply threw (e.g. ast_edit overlapping replacements). Keep the preview
+					// pending under the SAME id so the model can reject or fix-and-retry;
+					// runResolveInvocation rethrows, so the success-path removal below is skipped.
+					queue.registerPendingInvoker(id, options.sourceToolName, onInvoked, options.toolCallId);
+				},
+			});
+			// Resolved (apply succeeded, or discard): consume the staged action exactly once.
+			state = "resolved";
+			queue.removePendingInvoker(id);
+			return result;
+		} finally {
+			if (state === "resolving") state = "pending";
+		}
 	};
 
 	// NON-FORCING: register so a resolution-device write can dispatch here WITHOUT
 	// changing tool_choice. The agent-loop injects the reminder (from the
 	// SoftToolRequirement the session builds) and forces a `write` turn only on
 	// non-compliance.
-	queue.registerPendingInvoker(id, options.sourceToolName, onInvoked);
+	queue.registerPendingInvoker(id, options.sourceToolName, onInvoked, options.toolCallId);
 }
 
 /**
@@ -213,6 +233,7 @@ async function runResolveInvocation(
 	options: {
 		sourceToolName: string;
 		label: string;
+		toolCallId?: string;
 		apply(reason: string): Promise<AgentToolResult<unknown>>;
 		reject?(reason: string): Promise<AgentToolResult<unknown> | undefined>;
 		/** Invoked synchronously when `apply()` throws, before the error is rethrown.
@@ -227,6 +248,7 @@ async function runResolveInvocation(
 		reason: params.reason,
 		sourceToolName: options.sourceToolName,
 		label: options.label,
+		...(options.toolCallId !== undefined ? { toolCallId: options.toolCallId } : {}),
 	};
 	if (params.action === "apply") {
 		let result: AgentToolResult<unknown>;

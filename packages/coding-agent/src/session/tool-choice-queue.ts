@@ -78,6 +78,8 @@ interface PendingInvoker {
 	id: string;
 	/** Source tool that staged the preview (e.g. "ast_edit"), for the reminder. */
 	sourceToolName: string;
+	/** Tool call that staged the preview, when the staging tool recorded it. */
+	toolCallId?: string;
 	onInvoked: (input: unknown) => Promise<unknown> | unknown;
 }
 
@@ -236,9 +238,10 @@ export class ToolChoiceQueue {
 		id: string,
 		sourceToolName: string,
 		onInvoked: (input: unknown) => Promise<unknown> | unknown,
+		toolCallId?: string,
 	): void {
 		this.removePendingInvoker(id);
-		this.#pendingInvokers.push({ id, sourceToolName, onInvoked });
+		this.#pendingInvokers.push({ id, sourceToolName, toolCallId, onInvoked });
 	}
 
 	/** Drop the pending invoker with this id (e.g. after it resolves). */
@@ -260,6 +263,11 @@ export class ToolChoiceQueue {
 	/** The head (most-recently registered) pending invoker's handler, for resolve dispatch. */
 	peekPendingInvoker(): ((input: unknown) => Promise<unknown> | unknown) | undefined {
 		return this.#pendingInvokers.at(-1)?.onInvoked;
+	}
+
+	/** The handler of the pending preview staged by `toolCallId`, for a host resolving that one preview. */
+	findPendingInvoker(toolCallId: string): ((input: unknown) => Promise<unknown> | unknown) | undefined {
+		return this.#pendingInvokers.findLast(p => p.toolCallId === toolCallId)?.onInvoked;
 	}
 
 	/** The head pending preview's stable id + source tool, for building the agent-level

@@ -114,6 +114,12 @@ _GOAL_STATUS_VALUES: Final[frozenset[str]] = frozenset({"active", "paused", "bud
 _decode_goal_status = cast("Decoder[GoalStatus]", literal(_GOAL_STATUS_VALUES))
 
 
+ProposalAction: TypeAlias = Literal["apply", "discard"]
+"""What `resolve_proposal` does to a staged preview: write it (`xd://resolve`) or drop it (`xd://reject`)."""
+_PROPOSAL_ACTION_VALUES: Final[frozenset[str]] = frozenset({"apply", "discard"})
+_decode_proposal_action = cast("Decoder[ProposalAction]", literal(_PROPOSAL_ACTION_VALUES))
+
+
 SlashCommandSource: TypeAlias = Literal["builtin", "skill", "extension", "custom", "mcp_prompt", "file"]
 _SLASH_COMMAND_SOURCE_VALUES: Final[frozenset[str]] = frozenset({"builtin", "skill", "extension", "custom", "mcp_prompt", "file"})
 _decode_slash_command_source = cast("Decoder[SlashCommandSource]", literal(_SLASH_COMMAND_SOURCE_VALUES))
@@ -564,6 +570,24 @@ class ModelInfo:
     priority: int | None = None
     thinking: ThinkingConfig | None = None
     compat: JsonObject | None = None
+
+
+@dataclass(slots=True, frozen=True, kw_only=True)
+class ResolveProposalResult:
+    """Outcome of `resolve_proposal`."""
+    action: ProposalAction
+    source_tool_name: str
+    """Tool that staged the preview, e.g. `ast_edit`."""
+    label: str
+    """The preview's one-line label, e.g. `AST Edit: 2 replacements in 1 file`."""
+    text: str
+    """Result text, as the agent's own `xd://resolve`/`xd://reject` write would have returned it."""
+    is_error: bool
+    """The apply ran but no longer matched the preview (stale), so fewer or other changes landed; the preview is consumed either way."""
+    tool_call_id: str | None = None
+    """Tool call that staged the preview, when the staging tool recorded it."""
+    details: JsonObject | None = None
+    """The staging tool's result details after the apply, e.g. `ast_edit` replacement counts."""
 
 
 @dataclass(slots=True, frozen=True, kw_only=True)
@@ -1956,6 +1980,19 @@ def parse_model_info(value: object, path: str = "ModelInfo") -> ModelInfo:
         priority=optional(payload, "priority", decode_int, path),
         thinking=optional(payload, "thinking", parse_thinking_config, path),
         compat=optional(payload, "compat", decode_json_object, path),
+    )
+
+
+def parse_resolve_proposal_result(value: object, path: str = "ResolveProposalResult") -> ResolveProposalResult:
+    payload = expect_object(value, path)
+    return ResolveProposalResult(
+        action=required(payload, "action", _decode_proposal_action, path),
+        source_tool_name=required(payload, "sourceToolName", decode_str, path),
+        label=required(payload, "label", decode_str, path),
+        text=required(payload, "text", decode_str, path),
+        is_error=required(payload, "isError", decode_bool, path),
+        tool_call_id=optional(payload, "toolCallId", decode_str, path),
+        details=optional(payload, "details", decode_json_object, path),
     )
 
 
@@ -3551,6 +3588,16 @@ class WireClient:
             params["message"] = message
         return required(expect_object(self._command("revive_subagent", params), "revive_subagent"), "revived", decode_bool, "revive_subagent")
 
+    def resolve_proposal(self, action: ProposalAction, *, tool_call_id: str | None = None, reason: str | None = None) -> ResolveProposalResult:
+        """Apply or discard a staged preview (an `ast_edit` proposal) on the user's behalf — the one `toolCallId` staged, else the latest — and tell the agent; fails when none is pending."""
+        params: dict[str, object] = {}
+        params["action"] = action
+        if tool_call_id is not None:
+            params["toolCallId"] = tool_call_id
+        if reason is not None:
+            params["reason"] = reason
+        return parse_resolve_proposal_result(self._command("resolve_proposal", params), "resolve_proposal")
+
     def live_start(self, *, voice: str | None = None, instructions: str | None = None) -> str:
         """Start a live voice session bound to this session; returns the voice in use."""
         params: dict[str, object] = {}
@@ -4156,6 +4203,7 @@ __all__ = [
     "PromptError",
     "PromptResultEvent",
     "PromptStatus",
+    "ProposalAction",
     "PythonExecutionMessage",
     "QueueMode",
     "QueueUpdateEvent",
@@ -4164,6 +4212,7 @@ __all__ = [
     "ReadyEvent",
     "RedactedThinkingContent",
     "RemoveQueuedMessageResult",
+    "ResolveProposalResult",
     "RestoredQueuedMessage",
     "RetryFallbackAppliedEvent",
     "RetryFallbackSucceededEvent",
@@ -4343,6 +4392,7 @@ __all__ = [
     "parse_ready_event",
     "parse_redacted_thinking_content",
     "parse_remove_queued_message_result",
+    "parse_resolve_proposal_result",
     "parse_restored_queued_message",
     "parse_retry_fallback_applied_event",
     "parse_retry_fallback_succeeded_event",

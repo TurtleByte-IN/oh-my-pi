@@ -27,6 +27,31 @@ export const stateDefs = {
 	TodoStatus: "'pending' | 'in_progress' | 'completed' | 'abandoned' | 'blocked'",
 	GoalOp: "'get' | 'create' | 'resume' | 'pause' | 'drop'",
 	GoalStatus: "'active' | 'paused' | 'budget-limited' | 'complete' | 'dropped'",
+	ProposalAction: doc(
+		"'apply' | 'discard'",
+		"What `resolve_proposal` does to a staged preview: write it (`xd://resolve`) or drop it (`xd://reject`).",
+	),
+	ResolveProposalResult: doc(
+		{
+			action: "ProposalAction",
+			sourceToolName: doc("string", "Tool that staged the preview, e.g. `ast_edit`."),
+			label: doc("string", "The preview's one-line label, e.g. `AST Edit: 2 replacements in 1 file`."),
+			"toolCallId?": doc("string", "Tool call that staged the preview, when the staging tool recorded it."),
+			text: doc(
+				"string",
+				"Result text, as the agent's own `xd://resolve`/`xd://reject` write would have returned it.",
+			),
+			isError: doc(
+				"boolean",
+				"The apply ran but no longer matched the preview (stale), so fewer or other changes landed; the preview is consumed either way.",
+			),
+			"details?": doc(
+				JSON_OBJECT,
+				"The staging tool's result details after the apply, e.g. `ast_edit` replacement counts.",
+			),
+		},
+		"Outcome of `resolve_proposal`.",
+	),
 	SlashCommandSource: "'builtin' | 'skill' | 'extension' | 'custom' | 'mcp_prompt' | 'file'",
 	SubagentSubscriptionLevel: doc(
 		"'off' | 'progress' | 'events'",

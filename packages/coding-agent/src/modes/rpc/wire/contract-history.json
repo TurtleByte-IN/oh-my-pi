@@ -38,5 +38,9 @@
 	{
 		"version": "1.9.0",
 		"schemaHash": "sha256:19da27d7f77db61dc4d5985b7cdd033b591e9dc54d19c37bdf04bfb96e2c039c"
+	},
+	{
+		"version": "1.10.0",
+		"schemaHash": "sha256:d897f2aeeb735e5e81735118dbce5cc5083512323957242b44ebf5f6b95c69e2"
 	}
 ]

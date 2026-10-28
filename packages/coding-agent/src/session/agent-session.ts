@@ -252,7 +252,7 @@ import {
 	type PlanProposalHandler,
 	writeDeviceDispatch,
 } from "../tools/resolve";
-import { PROPOSE_DEVICE_NAME } from "@oh-my-pi/pi-tui/tools/resolve";
+import { PROPOSE_DEVICE_NAME, type ResolveAction, type ResolveDetails } from "@oh-my-pi/pi-tui/tools/resolve";
 import { supportsExternalThinking } from "../tools/think";
 import type { TodoPhase } from "@oh-my-pi/pi-tui/tools/todo";
 import { ToolError } from "@oh-my-pi/pi-tui/tools/tool-errors";
@@ -2920,6 +2920,53 @@ export class AgentSession implements SettingsScope {
 	/** Clear stale non-forcing pending preview invokers after a resolve dispatch proves none can run. */
 	clearPendingInvokers(): void {
 		this.#toolChoiceQueue.clearPendingInvokers();
+	}
+
+	/**
+	 * Apply or discard a staged preview on the user's behalf (RPC `resolve_proposal`):
+	 * the one staged by `toolCallId`, else the head. Runs the same handler as the
+	 * agent's `xd://resolve`/`xd://reject` write, so the preview is consumed exactly
+	 * once whoever gets there first, then tells the agent what the user decided —
+	 * at the next step boundary while a turn runs, else in the next turn's context.
+	 * Throws when nothing matching is pending or the apply fails (the preview stays staged).
+	 */
+	async resolveStagedProposal(input: {
+		action: ResolveAction;
+		toolCallId?: string;
+		reason?: string;
+	}): Promise<AgentToolResult<ResolveDetails>> {
+		const invoker =
+			input.toolCallId === undefined
+				? this.#toolChoiceQueue.peekPendingInvoker()
+				: this.#toolChoiceQueue.findPendingInvoker(input.toolCallId);
+		if (!invoker) {
+			throw new Error(
+				input.toolCallId === undefined
+					? "No staged proposal is pending."
+					: `No staged proposal from tool call ${input.toolCallId} is pending.`,
+			);
+		}
+		const applying = input.action === "apply";
+		const reason =
+			input.reason?.trim() || (applying ? "The user accepted the proposal." : "The user rejected the proposal.");
+		const result = (await invoker({ action: input.action, reason })) as AgentToolResult<ResolveDetails>;
+		const label = result.details?.label ?? "the staged proposal";
+		const outcome = result.content
+			.map(part => (part.type === "text" ? part.text : ""))
+			.join("\n")
+			.trim();
+		const verb = applying ? (result.isError ? "tried to apply" : "applied") : "discarded";
+		await this.sendCustomMessage(
+			{
+				customType: "proposal-resolved",
+				content: `The user ${verb} ${label} from the host, so it is no longer pending; do not write to xd://resolve or xd://reject for it. Reason: ${reason}${outcome ? `\nResult: ${outcome}` : ""}`,
+				display: false,
+				details: result.details,
+				attribution: "user",
+			},
+			{ deliverAs: this.isStreaming ? "aside" : "nextTurn" },
+		);
+		return result;
 	}
 
 	/**

@@ -48,7 +48,9 @@ import type {
 	RpcOpenSessionResult,
 	RpcPrewalkResult,
 	RpcPromptResultFrame,
+	RpcProposalAction,
 	RpcRemoveQueuedMessageResult,
+	RpcResolveProposalResult,
 	RpcResponse,
 	RpcSessionSettledFrame,
 	RpcSessionState,
@@ -1021,6 +1023,20 @@ export class RpcClient {
 	async reviveSubagent(subagentId: string, message?: string): Promise<boolean> {
 		const response = await this.#send({ type: "revive_subagent", subagentId, message });
 		return this.#getData<{ revived: boolean }>(response).revived;
+	}
+
+	/**
+	 * Apply or discard a staged preview (an `ast_edit` proposal) on the user's
+	 * behalf: the one `toolCallId` staged, else the latest. The agent is told
+	 * what the user decided. Rejects when nothing matching is pending, or when
+	 * the apply fails (the preview then stays staged).
+	 */
+	async resolveProposal(
+		action: RpcProposalAction,
+		options: { toolCallId?: string; reason?: string } = {},
+	): Promise<RpcResolveProposalResult> {
+		const response = await this.#send({ type: "resolve_proposal", action, ...options });
+		return this.#getData<RpcResolveProposalResult>(response);
 	}
 
 	/**

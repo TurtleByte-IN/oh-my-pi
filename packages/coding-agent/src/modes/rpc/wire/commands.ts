@@ -250,6 +250,16 @@ export const rpcCommands: readonly RpcCommandSpec[] = [
 		unwrap: "revived",
 	},
 	{
+		name: "resolve_proposal",
+		doc: "Apply or discard a staged preview (an `ast_edit` proposal) on the user's behalf — the one `toolCallId` staged, else the latest — and tell the agent; fails when none is pending.",
+		params: {
+			action: "ProposalAction",
+			"toolCallId?": doc("string", "Tool call that staged the preview; the latest staged preview when absent."),
+			"reason?": doc("string", "Why, passed to the agent; defaults to saying the user accepted or rejected it."),
+		},
+		result: "ResolveProposalResult",
+	},
+	{
 		name: "live_start",
 		doc: "Start a live voice session bound to this session; returns the voice in use.",
 		params: { "voice?": "string", "instructions?": "string" },

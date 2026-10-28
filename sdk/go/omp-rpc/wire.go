@@ -2065,6 +2065,65 @@ func (v *GoalStatus) UnmarshalJSON(data []byte) error {
 	return unknownValue("GoalStatus", s)
 }
 
+// What `resolve_proposal` does to a staged preview: write it (`xd://resolve`) or drop it (`xd://reject`).
+type ProposalAction string
+
+const (
+	ProposalActionApply   ProposalAction = "apply"
+	ProposalActionDiscard ProposalAction = "discard"
+)
+
+func (v *ProposalAction) UnmarshalJSON(data []byte) error {
+	s, err := decodeString(data, "ProposalAction")
+	if err != nil {
+		return err
+	}
+	switch value := ProposalAction(s); value {
+	case ProposalActionApply, ProposalActionDiscard:
+		*v = value
+		return nil
+	}
+	return unknownValue("ProposalAction", s)
+}
+
+// Outcome of `resolve_proposal`.
+type ResolveProposalResult struct {
+	Action ProposalAction `json:"action"`
+	// Tool that staged the preview, e.g. `ast_edit`.
+	SourceToolName string `json:"sourceToolName"`
+	// The preview's one-line label, e.g. `AST Edit: 2 replacements in 1 file`.
+	Label string `json:"label"`
+	// Result text, as the agent's own `xd://resolve`/`xd://reject` write would have returned it.
+	Text string `json:"text"`
+	// The apply ran but no longer matched the preview (stale), so fewer or other changes landed; the preview is consumed either way.
+	IsError bool `json:"isError"`
+	// Tool call that staged the preview, when the staging tool recorded it.
+	ToolCallID *string `json:"toolCallId,omitempty"`
+	// The staging tool's result details after the apply, e.g. `ast_edit` replacement counts.
+	Details map[string]json.RawMessage `json:"details,omitempty"`
+}
+
+func (v *ResolveProposalResult) UnmarshalJSON(data []byte) error {
+	return decodeWith(data, "ResolveProposalResult", v.decodeFrom)
+}
+
+func (v *ResolveProposalResult) decodeFrom(raw map[string]json.RawMessage) error {
+	var out ResolveProposalResult
+	d := fieldDecoder{raw: raw, owner: "ResolveProposalResult"}
+	d.required("action", &out.Action)
+	d.required("sourceToolName", &out.SourceToolName)
+	d.required("label", &out.Label)
+	d.required("text", &out.Text)
+	d.required("isError", &out.IsError)
+	d.optional("toolCallId", &out.ToolCallID)
+	d.optional("details", &out.Details)
+	if d.err != nil {
+		return d.err
+	}
+	*v = out
+	return nil
+}
+
 type SlashCommandSource string
 
 const (
@@ -8362,6 +8421,22 @@ func (c Commands) ReviveSubagent(ctx context.Context, p ReviveSubagentCommand) (
 	var out ReviveSubagentResult
 	err := c.call(ctx, "revive_subagent", p, 0, &out)
 	return out.Revived, err
+}
+
+// ResolveProposalCommand holds the parameters of "resolve_proposal".
+type ResolveProposalCommand struct {
+	Action ProposalAction `json:"action"`
+	// Tool call that staged the preview; the latest staged preview when absent.
+	ToolCallID *string `json:"toolCallId,omitempty"`
+	// Why, passed to the agent; defaults to saying the user accepted or rejected it.
+	Reason *string `json:"reason,omitempty"`
+}
+
+// ResolveProposal sends "resolve_proposal": Apply or discard a staged preview (an `ast_edit` proposal) on the user's behalf — the one `toolCallId` staged, else the latest — and tell the agent; fails when none is pending.
+func (c Commands) ResolveProposal(ctx context.Context, p ResolveProposalCommand) (ResolveProposalResult, error) {
+	var out ResolveProposalResult
+	err := c.call(ctx, "resolve_proposal", p, 0, &out)
+	return out, err
 }
 
 // LiveStartCommand holds the parameters of "live_start".
