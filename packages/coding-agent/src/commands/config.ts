@@ -32,7 +32,7 @@ export default class Config extends Command {
 		json: Flags.boolean({ description: "Output JSON" }),
 		scope: Flags.string({
 			description:
-				'Layer set/reset write: "global" (default; config.yml in the agent dir) or "project" (<cwd>/.omp/config.yml)',
+				'Layer set/reset write: "global" (default; config.yml in the agent dir) or "project" (<cwd>/.omp/config.yml); with list, only the keys that layer sets, as written',
 			options: ["global", "project"],
 		}),
 		cwd: Flags.string({

@@ -273,15 +273,73 @@ describe("config set/reset --scope project", () => {
 		expect(fs.existsSync(projectConfigFile())).toBe(false);
 	});
 
-	it("rejects --scope on actions that do not write", async () => {
+	it("rejects --scope on get, path and init-xdg", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
 			throw new Error("process.exit");
 		}) as typeof process.exit);
 
-		await expect(runConfigCommand({ action: "list", flags: { json: true, scope: "project" } })).rejects.toThrow(
-			"process.exit",
-		);
+		await expect(
+			runConfigCommand({ action: "get", key: "compaction.enabled", flags: { json: true, scope: "project" } }),
+		).rejects.toThrow("process.exit");
 		expect(exitSpy).toHaveBeenCalledWith(1);
+	});
+});
+
+describe("config list --scope", () => {
+	it("lists only the keys the global file sets, path-scoped entries as written", async () => {
+		await Bun.write(
+			path.join(agentDir.path(), "config.yml"),
+			[
+				"enabledModels:",
+				"  - anthropic/claude-sonnet-4-5",
+				`  - path: ${projectDir.path()}`,
+				"    models: [openai/gpt-5]",
+				"disabledProviders:",
+				"  - pathPrefix: /srv",
+				"    providers: [ollama]",
+				"compaction:",
+				"  enabled: false",
+				"hindsight:",
+				"  apiToken: secret-token",
+				"",
+			].join("\n"),
+		);
+		await Bun.write(projectConfigFile(), "defaultThinkingLevel: high\n");
+
+		const layer = await listJson({ args: ["--scope", "global", "--cwd", projectDir.path()] });
+
+		expect(Object.keys(layer).toSorted()).toEqual(
+			["compaction.enabled", "disabledProviders", "enabledModels", "hindsight.apiToken"].toSorted(),
+		);
+		expect(layer.enabledModels.value).toEqual([
+			"anthropic/claude-sonnet-4-5",
+			{ path: projectDir.path(), models: ["openai/gpt-5"] },
+		]);
+		expect(layer.disabledProviders.value).toEqual([{ pathPrefix: "/srv", providers: ["ollama"] }]);
+		expect(layer["compaction.enabled"]).toMatchObject({ value: false, type: "boolean" });
+		expect(layer["hindsight.apiToken"]).toMatchObject({ redacted: true });
+		expect(layer["hindsight.apiToken"].value).toBeUndefined();
+		for (const entry of Object.values(layer)) expect(entry).not.toHaveProperty("source");
+
+		// The effective list resolves the path-scoped entry for --cwd instead.
+		const effective = await listJson({ args: ["--cwd", projectDir.path()] });
+		expect(effective.enabledModels.value).toEqual(["anthropic/claude-sonnet-4-5", "openai/gpt-5"]);
+	});
+
+	it("lists the project layer of --cwd", async () => {
+		await Bun.write(path.join(agentDir.path(), "config.yml"), "compaction:\n  enabled: false\n");
+		await Bun.write(projectConfigFile(), "defaultThinkingLevel: high\nenabledModels: [openai/gpt-5]\n");
+
+		const layer = await listJson({ args: ["--scope", "project", "--cwd", projectDir.path()] });
+
+		expect(layer).toEqual({
+			defaultThinkingLevel: expect.objectContaining({ value: "high" }),
+			enabledModels: expect.objectContaining({ value: ["openai/gpt-5"], type: "array" }),
+		});
+	});
+
+	it("lists nothing for a layer that sets nothing", async () => {
+		expect(await listJson({ args: ["--scope", "global"] })).toEqual({});
 	});
 });

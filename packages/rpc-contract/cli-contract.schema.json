@@ -11,6 +11,11 @@
 				"output": "CliConfigList"
 			},
 			{
+				"name": "config list --scope",
+				"usage": "omp config list --scope global|project --json [--cwd <path>]",
+				"output": "CliConfigLayerList"
+			},
+			{
 				"name": "config set",
 				"usage": "omp config set <key> <value> --json [--scope global|project] [--cwd <path>]",
 				"output": "CliConfigSetResult"
@@ -105,6 +110,38 @@
 				"$ref": "#/$defs/CliConfigEntry"
 			},
 			"description": "`omp config list --json`: every setting by key."
+		},
+		"CliConfigLayerEntry": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"$ref": "#/$defs/CliSettingType"
+				},
+				"description": {
+					"type": "string"
+				},
+				"value": {
+					"description": "Value as the layer holds it: path-scoped arrays (`enabledModels`, `enabledProviders`, `disabledProviders`) keep their `{ path, … }` entries unresolved. Absent when redacted."
+				},
+				"redacted": {
+					"const": true,
+					"description": "Set when the layer holds a non-empty credential: `value` is withheld."
+				}
+			},
+			"required": [
+				"type",
+				"description"
+			],
+			"additionalProperties": false,
+			"description": "One setting in `omp config list --scope <scope> --json`."
+		},
+		"CliConfigLayerList": {
+			"type": "object",
+			"properties": {},
+			"additionalProperties": {
+				"$ref": "#/$defs/CliConfigLayerEntry"
+			},
+			"description": "`omp config list --scope global|project --json`: only the keys that layer sets, by key."
 		},
 		"CliConfigSetResult": {
 			"type": "object",

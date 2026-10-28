@@ -101,6 +101,7 @@ Hosts also drive a few `omp` subcommands and parse their `--json` output. Those 
 | Command | Output definition |
 | --- | --- |
 | `omp config list --json [--cwd <path>]` | `CliConfigList`: `{ value?, redacted?, type, description, source }` per setting key; `source` is the layer supplying the effective value (`default`, `global`, `project`, `overlay`, `runtime`, `env`). Configured credentials carry `redacted: true` and no `value`. |
+| `omp config list --scope global\|project --json [--cwd <path>]` | `CliConfigLayerList`: `{ value?, redacted?, type, description }` per key the layer sets, values as the layer holds them (path-scoped `{ path, … }` entries unresolved). Since CLI contract `1.1.0`. |
 | `omp config set <key> <value> --json [--scope global\|project] [--cwd <path>]` | `CliConfigSetResult`: `{ key, scope, value?, overriddenBy?, fallbackEnv? }` |
 | `omp config reset <key> --json [--scope global\|project] [--cwd <path>]` | `CliConfigResetResult`: `{ key, scope, value?, redacted? }` |
 | `omp models [ls\|find\|refresh] [pattern] --json [--kind <kind>]` | `CliModelsList`: `{ models: CliModel[] }` |

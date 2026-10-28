@@ -203,6 +203,28 @@ describe("CLI JSON outputs match the contract", () => {
 		expect(listed["hindsight.apiToken"]).toMatchObject({ redacted: true });
 	});
 
+	test("config list --scope global --json, with a path-scoped entry and a redacted credential", async () => {
+		const scopedHome = TempDir.createSync("@omp-cli-contract-layer-");
+		try {
+			await Bun.write(
+				path.join(scopedHome.path(), ".omp", "agent", "config.yml"),
+				`enabledModels:\n  - path: ${project.path()}\n    models: [openai/gpt-5]\nhindsight:\n  apiToken: secret-token\n`,
+			);
+
+			const listed = (await runJson(
+				["config", "list", "--scope", "global", "--json"],
+				scopedHome.path(),
+				scopedHome.path(),
+			)) as Record<string, { value?: unknown; redacted?: true }>;
+
+			expectConforms("CliConfigLayerList", listed);
+			expect(listed.enabledModels.value).toEqual([{ path: project.path(), models: ["openai/gpt-5"] }]);
+			expect(listed["hindsight.apiToken"]).toMatchObject({ redacted: true });
+		} finally {
+			await scopedHome.remove().catch(() => {});
+		}
+	});
+
 	test("skill list [dir] --json", async () => {
 		const skillDir = path.join(project.path(), ".omp", "skills", "demo");
 		await Bun.write(
